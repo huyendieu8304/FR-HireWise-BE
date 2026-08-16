@@ -31,3 +31,12 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### Environment files - chua secret/credential, KHONG duoc commit ###
+# Chi .env.example (template, khong chua gia tri that) duoc phep len git.
+.env
+.env.local
+.env.dev
+.env.prod
+.env.*.local
+!.env.example

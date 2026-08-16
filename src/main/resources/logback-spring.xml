@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <!-- Ke thua cac default cua Spring Boot (mau sac ANSI, cac converter
+         %clr, %wEx...) -->
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+
+    <!-- Lay tu Spring Environment (application.properties / .env) de dung
+         trong pattern/JSON ben duoi -->
+    <springProperty scope="context" name="appName" source="spring.application.name" defaultValue="hirewise-be"/>
+    <springProperty scope="context" name="appEnv" source="spring.profiles.active" defaultValue="local"/>
+
+    <!-- ================= PROFILE: local =================
+         Uu tien de doc tren console: co mau, canh dep, va van hien thi
+         correlationId/userId/role ngay tren dong log (khong can mo file
+         JSON) de dev debug nhanh khi code tren may ca nhan. -->
+    <springProfile name="local">
+        <property name="CONSOLE_LOG_PATTERN"
+                  value="%clr(%d{yyyy-MM-dd HH:mm:ss.SSS}){faint} %clr(%-5level) %clr([%15.15thread]){faint} %clr(%-40.40logger{39}){cyan} %clr([cid=%X{correlationId:-＿} uid=%X{userId:-＿} role=%X{userRoles:-＿}]){yellow} : %msg%n%wEx"/>
+
+        <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder>
+                <pattern>${CONSOLE_LOG_PATTERN}</pattern>
+                <charset>UTF-8</charset>
+            </encoder>
+        </appender>
+
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+        </root>
+    </springProfile>
+
+    <!-- ================= PROFILE: dev, prod =================
+         In JSON co cau truc ra stdout. KHONG tu ket noi truc tiep den
+         Loki - trong moi truong container hoa, cach chuan/khuyen nghi la
+         de 1 log shipper (Promtail / Grafana Alloy / Fluent Bit) doc
+         stdout cua container roi day vao Loki. Cach nay tach rieng app
+         khoi vong doi cua he thong observability (app khong bao gio bi
+         chan/loi vi Loki down).
+         Moi dong JSON co san: level, logger, message, cac MDC field
+         (correlationId, userId, userRoles, traceId, spanId - traceId/
+         spanId duoc Spring Boot tu dong bom vao MDC khi co
+         spring-boot-starter-opentelemetry tren classpath), va tag
+         service/environment de loc/query trong Grafana. -->
+    <springProfile name="dev,prod">
+        <appender name="CONSOLE_JSON" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+                <includeMdcKeyName>correlationId</includeMdcKeyName>
+                <includeMdcKeyName>userId</includeMdcKeyName>
+                <includeMdcKeyName>userRoles</includeMdcKeyName>
+                <includeMdcKeyName>traceId</includeMdcKeyName>
+                <includeMdcKeyName>spanId</includeMdcKeyName>
+                <customFields>{"service":"${appName}","environment":"${appEnv}"}</customFields>
+            </encoder>
+        </appender>
+
+        <root level="INFO">
+            <appender-ref ref="CONSOLE_JSON"/>
+        </root>
+    </springProfile>
+</configuration>
