@@ -18,7 +18,7 @@ import java.time.Instant;
 @AllArgsConstructor
 public class AssignAccessScopeRequestDto {
 
-    @NotNull
+    @NotNull(message = "{validation.access_scope.scope_type.required}")
     private ScopeType scopeType;
 
     /** Bat buoc khi scopeType=DEPARTMENT. */

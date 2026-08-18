@@ -20,12 +20,12 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class CreateUserRequestDto {
 
-    @NotBlank
-    @Email
-    @Size(max = 255)
+    @NotBlank(message = "{validation.user.email.required}")
+    @Email(message = "{validation.user.email.invalid}")
+    @Size(max = 255, message = "{validation.user.email.size}")
     private String email;
 
-    @Size(max = 255)
+    @Size(max = 255, message = "{validation.user.full_name.size}")
     private String fullName;
 
     /** Phong ban to chuc chinh (BR-RBAC-05) - khong phai pham vi truy cap. */

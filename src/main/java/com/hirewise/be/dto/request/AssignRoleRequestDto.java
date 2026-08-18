@@ -14,7 +14,7 @@ import java.time.Instant;
 @AllArgsConstructor
 public class AssignRoleRequestDto {
 
-    @NotBlank
+    @NotBlank(message = "{validation.role_assignment.role_code.required}")
     private String roleCode;
 
     /** Mac dinh = ngay lap tuc neu de trong. */

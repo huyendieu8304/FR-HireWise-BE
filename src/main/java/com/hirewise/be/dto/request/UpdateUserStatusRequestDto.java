@@ -12,6 +12,6 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class UpdateUserStatusRequestDto {
 
-    @NotNull
+    @NotNull(message = "{validation.user.status.required}")
     private UserStatus status;
 }
