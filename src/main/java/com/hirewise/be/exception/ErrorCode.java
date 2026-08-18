@@ -24,9 +24,11 @@ public enum ErrorCode {
     DEPARTMENT_NOT_FOUND("error.department_not_found"),
     ROLE_NOT_FOUND("error.role_not_found"),
     ROLE_NOT_ASSIGNABLE("error.role_not_assignable"),
+    ROLE_NOT_ASSIGNED("error.role_not_assigned"),
 
     // Keycloak sync (xem KeycloakAdminClient)
-    KEYCLOAK_ROLE_SYNC_FAILED("error.keycloak_role_sync_failed");
+    KEYCLOAK_ROLE_SYNC_FAILED("error.keycloak_role_sync_failed"),
+    KEYCLOAK_USER_SYNC_FAILED("error.keycloak_user_sync_failed");
 
     private final String key;
 

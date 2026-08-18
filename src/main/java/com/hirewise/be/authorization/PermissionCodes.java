@@ -5,7 +5,7 @@ package com.hirewise.be.authorization;
  * AccessControlService.checkAccess(...)/@RequiresOwnership co kiem tra o
  * thoi diem bien dich, thay vi go string tay de nham. Nguon su that ve
  * role nao duoc cap permission nao van la bang role_permissions trong DB
- * (xem V3__create_roles_and_permissions.sql), KHONG lap lai o day.
+ * (xem V2__create_roles_and_permissions.sql), KHONG lap lai o day.
  */
 public final class PermissionCodes {
 
