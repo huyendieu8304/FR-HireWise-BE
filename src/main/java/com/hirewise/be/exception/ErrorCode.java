@@ -16,7 +16,17 @@ public enum ErrorCode {
 
     // Job posting sample domain
     JOB_POSTING_NOT_FOUND("error.job_posting_not_found"),
-    JOB_POSTING_ALREADY_CLOSED("error.job_posting_already_closed");
+    JOB_POSTING_ALREADY_CLOSED("error.job_posting_already_closed"),
+
+    // RBAC / user administration
+    USER_NOT_FOUND("error.user_not_found"),
+    USER_ALREADY_EXISTS("error.user_already_exists"),
+    DEPARTMENT_NOT_FOUND("error.department_not_found"),
+    ROLE_NOT_FOUND("error.role_not_found"),
+    ROLE_NOT_ASSIGNABLE("error.role_not_assignable"),
+
+    // Keycloak sync (xem KeycloakAdminClient)
+    KEYCLOAK_ROLE_SYNC_FAILED("error.keycloak_role_sync_failed");
 
     private final String key;
 

@@ -121,6 +121,13 @@
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-database-postgresql</artifactId>
         </dependency>
+        <!-- Cache: UserDirectoryService (Authentication Freshness, BR-AUTH-07) va
+             RolePermissionCache (RBAC layer 2) dung Caffeine, TTL ngan de tranh
+             tra DB moi request ma van gan-real-time khi status/permission doi. -->
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+        </dependency>
     </dependencies>
 
     <build>

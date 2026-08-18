@@ -1,9 +1,12 @@
 package com.hirewise.be.config;
 
+import com.hirewise.be.security.AuthenticationFreshnessFilter;
 import com.hirewise.be.security.CustomAccessDeniedHandler;
 import com.hirewise.be.security.CustomAuthenticationEntryPoint;
 import com.hirewise.be.security.KeycloakRoleConverter;
 import com.hirewise.be.security.UserContextMdcFilter;
+import com.hirewise.be.security.UserDirectoryService;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -15,6 +18,7 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.web.servlet.HandlerExceptionResolver;
 
 /**
  * Spring Security cấu hình theo mô hình OAuth2 Resource Server: app KHÔNG
@@ -35,13 +39,19 @@ public class SecurityConfig {
     private final KeycloakRoleConverter keycloakRoleConverter;
     private final CustomAuthenticationEntryPoint authenticationEntryPoint;
     private final CustomAccessDeniedHandler accessDeniedHandler;
+    private final UserDirectoryService userDirectoryService;
+    private final HandlerExceptionResolver handlerExceptionResolver;
 
     public SecurityConfig(KeycloakRoleConverter keycloakRoleConverter,
                            CustomAuthenticationEntryPoint authenticationEntryPoint,
-                           CustomAccessDeniedHandler accessDeniedHandler) {
+                           CustomAccessDeniedHandler accessDeniedHandler,
+                           UserDirectoryService userDirectoryService,
+                           @Qualifier("handlerExceptionResolver") HandlerExceptionResolver handlerExceptionResolver) {
         this.keycloakRoleConverter = keycloakRoleConverter;
         this.authenticationEntryPoint = authenticationEntryPoint;
         this.accessDeniedHandler = accessDeniedHandler;
+        this.userDirectoryService = userDirectoryService;
+        this.handlerExceptionResolver = handlerExceptionResolver;
     }
 
     @Bean
@@ -65,13 +75,11 @@ public class SecurityConfig {
                     .requestMatchers("/actuator/health/**").permitAll()
                     .requestMatchers(HttpMethod.GET, "/api/public/**").permitAll()
 
-                    // RBAC theo role Keycloak (đã map "ROLE_xxx" trong KeycloakRoleConverter)
-//                    .requestMatchers(HttpMethod.POST, "/api/job-postings").hasAnyRole("ADMIN", "RECRUITER")
-//                    .requestMatchers(HttpMethod.PATCH, "/api/job-postings/*/close").hasAnyRole("ADMIN", "RECRUITER")
-//                    .requestMatchers(HttpMethod.DELETE, "/api/job-postings/**").hasRole("ADMIN")
-//                    .requestMatchers(HttpMethod.GET, "/api/job-postings/**").authenticated()
-
-                    // Còn lại: chỉ cần đăng nhập hợp lệ (role cụ thể tự kiểm ở @PreAuthorize nếu cần)
+                    // Mọi endpoint nghiệp vụ khác: chỉ cần JWT hợp lệ ở tầng URL. Quyết
+                    // định permission/scope/ownership cụ thể (RBAC layer 2-4) nằm ở
+                    // AccessControlService/@RequiresOwnership trong service/controller
+                    // liên quan - xem package authorization - KHÔNG lặp lại role-per-URL
+                    // ở đây nữa để tránh 2 nguồn sự thật xung đột nhau.
                     .anyRequest().authenticated()
             )
             .oauth2ResourceServer(oauth2 -> oauth2
@@ -80,7 +88,12 @@ public class SecurityConfig {
             // Gắn userId/role vào MDC ngay sau khi JWT được xác thực xong, để mọi
             // log log.info(...)/log.warn(...) phát sinh sau đó (service, exception
             // handler...) tự động có sẵn 2 field này - xem UserContextMdcFilter.
-            .addFilterAfter(new UserContextMdcFilter(), BearerTokenAuthenticationFilter.class);
+            .addFilterAfter(new UserContextMdcFilter(), BearerTokenAuthenticationFilter.class)
+            // RBAC layer 1 (Authentication Freshness, BR-AUTH-07) - phải chạy sau khi
+            // đã có Authentication (để đọc "sub") nhưng trước khi vào tới
+            // controller/@PreAuthorize, xem AuthenticationFreshnessFilter.
+            .addFilterAfter(new AuthenticationFreshnessFilter(userDirectoryService, handlerExceptionResolver),
+                    UserContextMdcFilter.class);
 
         return http.build();
     }
