@@ -7,7 +7,9 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
- * 5 role mac dinh, is_system=true
+ * A role that can be assigned to users (e.g. Recruiter, Interviewer,
+ * Admin). The 5 default roles are seeded with {@code is_system=true} and
+ * cannot be deleted.
  */
 @Entity
 @Table(name = "roles")

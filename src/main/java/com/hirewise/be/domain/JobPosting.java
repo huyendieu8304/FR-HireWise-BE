@@ -9,9 +9,11 @@ import lombok.NoArgsConstructor;
 import java.time.Instant;
 
 /**
- * Entity mẫu để minh hoạ full luồng: controller (RBAC theo role Keycloak)
- * -> service -> repository -> Postgres (Supabase), migrate bằng Flyway
- * (xem src/main/resources/db/migration/__create_job_postings_table.sql).
+ * Represents a job posting created by a recruiter. Used as the sample
+ * entity demonstrating the full stack: controller (RBAC via Keycloak
+ * roles) -> service -> repository -> Postgres (Supabase), with schema
+ * managed by Flyway (see
+ * src/main/resources/db/migration/__create_job_postings_table.sql).
  */
 @Entity
 @Table(name = "job_postings")
@@ -39,13 +41,15 @@ public class JobPosting {
     @Column(nullable = false, length = 20)
     private JobStatus status;
 
-    /** subject (sub claim - id user Keycloak) của người tạo job posting */
+    /** Subject (the "sub" claim - Keycloak user id) of whoever created this job posting. */
     @Column(name = "created_by", nullable = false, length = 255)
     private String createdBy;
 
-    /** Recruiter được gán phụ trách - owner field cho RBAC layer 4
-     * (Ownership): chỉ recruiter này mới được sửa job qua JOB_EDIT, xem
-     * JobPostingOwnershipResolver. */
+    /**
+     * Recruiter assigned as owner of this job posting - the owner field for
+     * RBAC layer 4 (Ownership): only this recruiter can edit the job
+     * posting via JOB_EDIT, see {@code JobPostingOwnershipResolver}.
+     */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "recruiter_id")
     private User recruiter;

@@ -9,9 +9,11 @@ import lombok.NoArgsConstructor;
 import java.time.Instant;
 
 /**
- * Phong ban, phan cap qua parentDepartment (BR-RBAC-06). Tap phong ban con
- * cua 1 department KHONG duoc luu cung o day - tinh bang recursive CTE tai
- * thoi diem check quyen, xem DepartmentRepository#findSelfAndDescendantIds.
+ * Represents an organizational department, hierarchically nested via
+ * {@code parentDepartment} (BR-RBAC-06). The set of descendant departments
+ * for a given department is NOT stored here - it's computed with a
+ * recursive CTE at permission-check time, see
+ * {@code DepartmentRepository#findSelfAndDescendantIds}.
  */
 @Entity
 @Table(name = "departments")

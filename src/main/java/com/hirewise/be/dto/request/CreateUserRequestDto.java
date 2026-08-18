@@ -8,12 +8,15 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
- * USER_CREATE (chi HR_ADMIN). Khac ban truoc: KHONG con nhan keycloakId tu
- * client - UserAdminService#create tu goi KeycloakAdminClient#createUser de
- * tao that tai khoan Keycloak (username/email = email nay) va lay ve
- * keycloakId, dung UC-02 (HR Admin chi nhap thong tin, he thong tu tao tai
- * khoan + gui email kich hoat EM-01), khong con gia dinh tai khoan Keycloak
- * da ton tai san nua.
+ * Request body for USER_CREATE (HR_ADMIN only).
+ * <p>
+ * Unlike the previous version, this no longer accepts a keycloakId from the
+ * client - {@code UserAdminService#create} calls
+ * {@code KeycloakAdminClient#createUser} itself to actually create the
+ * Keycloak account (username/email = this email) and retrieve the
+ * keycloakId, per UC-02 (the HR Admin only enters the info; the system
+ * creates the account and sends the activation email EM-01). It no longer
+ * assumes a Keycloak account already exists beforehand.
  */
 @Data
 @NoArgsConstructor
@@ -28,6 +31,6 @@ public class CreateUserRequestDto {
     @Size(max = 255, message = "{validation.user.full_name.size}")
     private String fullName;
 
-    /** Phong ban to chuc chinh (BR-RBAC-05) - khong phai pham vi truy cap. */
+    /** Primary organizational department (BR-RBAC-05) - not an access scope. */
     private Long departmentId;
 }

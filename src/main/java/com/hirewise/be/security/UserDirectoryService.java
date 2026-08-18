@@ -11,14 +11,16 @@ import java.time.Duration;
 import java.util.Optional;
 
 /**
- * BR-AUTH-07: "JWT hop le KHONG duoc xem la du dieu kien truy cap" - moi
- * request phai xac minh users.status = ACTIVE tai thoi diem xu ly, khong
- * chi tai thoi diem token duoc cap. Tra thang DB moi request se cham, nen
- * dung cache Caffeine TTL NGAN (mac dinh 45s, option B trong RBAC Design
- * muc 5.3) - du nhanh de khong lam cham request, va du ngan de 1 tai khoan
- * vua bi Blocked khong the tiep tuc goi API qua lau. Khi HR Admin khoa tai
- * khoan, UserAdminService se evict() ngay entry lien quan de khong phai
- * doi het TTL (ket hop voi KeycloakAdminClient#forceLogout - option D).
+ * BR-AUTH-07: "a valid JWT alone is not sufficient for access" - every
+ * request must verify {@code users.status = ACTIVE} at the time it is
+ * processed, not just at the time the token was issued. Hitting the DB on
+ * every single request would be too slow, so we use a SHORT-TTL Caffeine
+ * cache (45s by default, option B in RBAC Design section 5.3) - fast
+ * enough to not slow requests down, short enough that a freshly-blocked
+ * account can't keep calling the API for too long. When an HR Admin blocks
+ * an account, {@code UserAdminService} evicts the relevant entry
+ * immediately instead of waiting out the TTL (combined with
+ * {@code KeycloakAdminClient#forceLogout} - option D).
  */
 @Component
 public class UserDirectoryService {
@@ -35,10 +37,26 @@ public class UserDirectoryService {
                 .build();
     }
 
+    /**
+     * Looks up the {@link UserSnapshot} for a Keycloak user id, served from
+     * the short-TTL cache when possible.
+     *
+     * @param keycloakId the "sub" claim of the user's JWT
+     * @return the snapshot, or {@link Optional#empty()} if no local user
+     *         record exists for this Keycloak id (account not provisioned)
+     */
     public Optional<UserSnapshot> lookup(String keycloakId) {
         return cache.get(keycloakId, this::loadFromDb);
     }
 
+    /**
+     * Forces the next {@link #lookup} for this user to hit the database
+     * instead of a stale cache entry - used right after an admin action
+     * that changes {@code users.status} (e.g. blocking an account), so the
+     * change takes effect immediately instead of waiting out the TTL.
+     *
+     * @param keycloakId the "sub" claim identifying the affected user
+     */
     public void evict(String keycloakId) {
         cache.invalidate(keycloakId);
     }
@@ -47,8 +65,8 @@ public class UserDirectoryService {
         return userRepository.findByKeycloakId(keycloakId).map(this::toSnapshot);
     }
 
-    // Chi con lay userId + status - xem UserSnapshot de biet ly do bo
-    // roleCodes/departmentId (khong con noi nao doc lai 2 field do).
+    // Only userId + status are kept - see UserSnapshot for why roleCodes/
+    // departmentId were dropped (nothing reads them from here anymore).
     private UserSnapshot toSnapshot(User user) {
         return new UserSnapshot(user.getId(), user.getStatus());
     }

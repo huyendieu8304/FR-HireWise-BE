@@ -7,14 +7,22 @@ import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 
+/**
+ * Repository for {@link Department} entities.
+ */
 public interface DepartmentRepository extends JpaRepository<Department, Long> {
 
     /**
-     * BR-RBAC-06: tra ve chinh departmentId va toan bo phong ban con (moi
-     * cap) theo parent_department_id, tinh bang recursive CTE tai thoi diem
-     * goi - KHONG luu cung danh sach nay o dau ca de tranh phai dong bo lai
-     * khi cay phong ban thay doi.
+     * BR-RBAC-06: returns the given departmentId together with all of its
+     * descendant departments (at any depth), computed via a recursive CTE
+     * at call time. The result is never cached/persisted anywhere, so it
+     * doesn't need to be resynced when the department tree changes.
+     *
+     * @param rootId id of the department to start the traversal from
+     * @return ids of {@code rootId} and all its descendant departments
      */
+    // Recursive CTE walks down parent_department_id from rootId to collect
+    // the whole subtree in one round trip instead of N+1 queries.
     @Query(value = """
             WITH RECURSIVE dept_tree AS (
                 SELECT department_id FROM departments WHERE department_id = :rootId

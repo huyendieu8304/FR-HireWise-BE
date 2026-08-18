@@ -8,6 +8,9 @@ import org.springframework.data.domain.Page;
 
 import java.util.List;
 
+/**
+ * Generic paginated response wrapper used by list endpoints that support paging.
+ */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor

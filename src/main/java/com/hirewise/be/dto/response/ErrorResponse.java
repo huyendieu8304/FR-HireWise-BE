@@ -7,6 +7,9 @@ import lombok.NoArgsConstructor;
 
 import java.util.Map;
 
+/**
+ * Standard error response body returned by the global exception handler.
+ */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor

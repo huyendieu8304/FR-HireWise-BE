@@ -8,6 +8,9 @@ import lombok.NoArgsConstructor;
 
 import java.time.Instant;
 
+/**
+ * Response body representing a user's access scope (RBAC layer 3).
+ */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor

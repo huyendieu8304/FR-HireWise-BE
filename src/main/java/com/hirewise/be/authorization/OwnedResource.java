@@ -1,19 +1,22 @@
 package com.hirewise.be.authorization;
 
 /**
- * Record chứa thông tin tối thiểu của 1 tài nguyên sau khi được load từ DB.
+ * Record holding the minimal set of resource data needed after it has been
+ * loaded from the DB.
+ * <p>
+ * Bundles everything required for both Layer 3 (Access Scope) and Layer 4
+ * (Ownership) into a single object, ensuring the resource is only queried
+ * from the database ONCE.
  *
- * Thiết kế này gom toàn bộ dữ liệu cần thiết cho cả Layer 3 (Access Scope) và Layer 4 (Ownership)
- * vào một nơi, đảm bảo chỉ cần TRUY VẤN DATABASE 1 LẦN DUY NHẤT.
- *
- * @param ownerId      ID của người sở hữu tài nguyên (null nếu chưa có ai sở hữu).
- * @param departmentId ID của phòng ban quản lý tài nguyên này (dùng cho Layer 3).
- * @param jobId        ID của Job liên quan đến tài nguyên này (dùng cho Layer 3).
+ * @param ownerId      id of the resource owner ({@code null} if it has no owner yet)
+ * @param departmentId id of the department that manages this resource (used for Layer 3)
+ * @param jobId        id of the job related to this resource (used for Layer 3)
  */
 public record OwnedResource(Long ownerId, Long departmentId, Long jobId) {
 
     /**
-     * Chuyển đổi dữ liệu sang ResourceContext để truyền vào AccessControlService (Layer 3).
+     * Converts this resource's scope data into a {@link ResourceContext} to
+     * pass into {@link AccessControlService} (Layer 3).
      */
     public ResourceContext toResourceContext() {
         return new ResourceContext(departmentId, jobId);

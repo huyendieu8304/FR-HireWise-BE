@@ -11,9 +11,9 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
- * Quản lý Cache cho RBAC Layer 2 (Role-Permission).
- * Cache ánh xạ: roleCode -> Map<permissionCode, isWriteFlag>.
- * Giúp giảm tải truy vấn DB liên tục khi gọi API.
+ * Cache for RBAC Layer 2 (Role-Permission).
+ * Caches the mapping: roleCode -> Map&lt;permissionCode, isWriteFlag&gt;.
+ * Reduces the number of DB queries needed on every API call.
  */
 @Component
 public class RolePermissionCache {
@@ -24,7 +24,7 @@ public class RolePermissionCache {
     public RolePermissionCache(PermissionRepository permissionRepository,
                                 @Value("${app.rbac.role-permission-cache-ttl-seconds:300}") long ttlSeconds) {
         this.permissionRepository = permissionRepository;
-        // Khởi tạo Caffeine Cache với thời gian hết hạn (TTL) configurable
+        // Initialize the Caffeine cache with a configurable time-to-live (TTL)
         this.cache = Caffeine.newBuilder()
                 .expireAfterWrite(Duration.ofSeconds(ttlSeconds))
                 .maximumSize(100)
@@ -32,23 +32,32 @@ public class RolePermissionCache {
     }
 
     /**
-     * Lấy danh sách permission của 1 role từ cache.
-     * Nếu chưa có trong cache (Cache Miss), tự động gọi loadFromDb để nạp vào cache.
+     * Returns the permissions granted to a role, from cache.
+     * On a cache miss, automatically loads them from the DB via {@link #loadFromDb}.
+     *
+     * @param roleCode the role code to look up
+     * @return map of permissionCode -> isWriteFlag granted to this role
      */
-    //todo cho nay, current user co them nhung role khac cua keycloak bo vao ngoai nhung business role, check lai
+    // TODO: current user roles may include extra Keycloak roles mixed in alongside
+    // the business roles here - needs to be double-checked.
     public Map<String, Boolean> permissionsOf(String roleCode) {
         return cache.get(roleCode, this::loadFromDb);
     }
 
     /**
-     * Helper check nhanh xem 1 role có chứa permissionCode hay không.
+     * Quick check for whether a role is granted a given permission.
+     *
+     * @param roleCode       the role code to check
+     * @param permissionCode the permission code to check for
+     * @return {@code true} if the role is granted this permission
      */
     public boolean grants(String roleCode, String permissionCode) {
         return permissionsOf(roleCode).containsKey(permissionCode);
     }
 
     /**
-     * Truy vấn trực tiếp Database thông qua Repository và convert kết quả thành Map.
+     * Queries the database directly through the repository and converts the
+     * result into a map.
      */
     private Map<String, Boolean> loadFromDb(String roleCode) {
         return permissionRepository.findByRoleCode(roleCode).stream()

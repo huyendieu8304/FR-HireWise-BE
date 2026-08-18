@@ -9,6 +9,9 @@ import lombok.NoArgsConstructor;
 import java.time.Instant;
 import java.util.Set;
 
+/**
+ * Response body representing a user account.
+ */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor

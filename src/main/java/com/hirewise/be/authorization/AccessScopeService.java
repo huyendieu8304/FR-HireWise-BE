@@ -10,19 +10,16 @@ import java.time.Instant;
 import java.util.List;
 
 /**
- * RBAC layer 3 (Access Scope). Cai dat dung theo pseudocode
- * isWithinAccessScope o muc 3.3 cua RBAC Design: UNION toan bo scope dang
- * hieu luc cua user (BR-RBAC-05), ke thua phong ban con neu
- * includeSubDepartments=true (BR-RBAC-06, tinh bang recursive CTE - xem
- * DepartmentRepository), va bat buoc can_write=true cho hanh dong ghi
- * (BR-RBAC-02).
- */
-
-
-/**
- * Kiểm tra hành động có nằm trong phạm vi (Scope) cho phép của người dùng không.
- * Layer 3 (Access Scope).
- * Xác định người dùng có phạm vi quyền hạn (System, Department, Job) trên dữ liệu mục tiêu hay không.
+ * RBAC Layer 3 (Access Scope): determines whether an action on a target
+ * resource falls within the user's allowed scope (System, Department, or
+ * Job).
+ * <p>
+ * Implements the {@code isWithinAccessScope} pseudocode from section 3.3 of
+ * the RBAC Design: takes the UNION of all currently active scopes assigned
+ * to the user (BR-RBAC-05), includes descendant departments when
+ * {@code includeSubDepartments=true} (BR-RBAC-06, computed via a recursive
+ * CTE - see {@code DepartmentRepository}), and requires {@code can_write=true}
+ * for write actions (BR-RBAC-02).
  */
 @Component
 public class AccessScopeService {
@@ -40,37 +37,50 @@ public class AccessScopeService {
     }
 
     /**
-     * Kiểm tra hành động có nằm trong phạm vi (Scope) cho phép của người dùng không.
+     * Checks whether the given action falls within one of the user's active
+     * access scopes.
+     *
+     * @param userId        id of the user whose scopes are checked
+     * @param resource      department/job the target resource belongs to;
+     *                      {@code null} means the action isn't tied to a
+     *                      specific resource, in which case Layer 2 alone is
+     *                      sufficient and this method returns {@code true}
+     * @param requiresWrite whether the action requires write access, in
+     *                      which case only scopes with {@code can_write=true}
+     *                      are considered
+     * @return {@code true} if at least one active scope covers the resource
      */
     public boolean isWithinScope(Long userId, ResourceContext resource, boolean requiresWrite) {
-        // Nếu không có context tài nguyên, không gắn với 1 deparment/job cụ thể (hành động dùng chung như USER_CREATE, ROLE_ASSIGN)  thì layer 2 check permission là đủ rồi, bỏ qua check resource scope
+        // No resource context means the action isn't tied to a specific department/job
+        // (e.g. USER_CREATE, ROLE_ASSIGN - system administration actions), so the Layer 2
+        // permission check already covers it; skip the resource scope check.
         if (resource == null) {
             return true;
         }
 
         Instant now = Instant.now(clock);
-        // Lấy tất cả phạm vi quyền hạn đang còn hiệu lực của user
+        // Fetch all of the user's currently active access scopes
         List<UserAccessScope> scopes = scopeRepository.findActiveScopes(userId, now);
 
         for (UserAccessScope scope : scopes) {
-            // Nếu hành động yêu cầu quyền Ghi (requiresWrite = true) nhưng Scope chỉ cho phép Đọc -> Bỏ qua Scope này
+            // A write action (requiresWrite = true) can't be satisfied by a read-only scope -> skip it
             if (requiresWrite && !scope.isCanWrite()) {
                 continue;
             }
-            // Kiểm tra theo loại Scope
+            // Evaluate scope by type
             switch (scope.getScopeType()) {
                 case SYSTEM -> {
-                    // Quyền toàn hệ thống -> Cho phép tất cả
+                    // System-wide scope -> allow everything
                     return true;
                 }
                 case JOB -> {
-                    // Quyền theo từng Công việc cụ thể -> Khớp jobId
+                    // Scoped to a specific job -> match on jobId
                     if (resource.jobId() != null && resource.jobId().equals(scope.getJobId())) {
                         return true;
                     }
                 }
                 case DEPARTMENT -> {
-                    // Quyền theo Phòng ban -> Kiểm tra ID phòng ban và cây phòng ban con
+                    // Scoped to a department -> check the department id, including sub-departments
                     if (isDepartmentWithinScope(scope, resource.departmentId())) {
                         return true;
                     }
@@ -81,18 +91,23 @@ public class AccessScopeService {
     }
 
     /**
-     * Kiểm tra phòng ban mục tiêu có nằm trong phạm vi quản lý của Scope không.
+     * Checks whether the target department is within the department(s)
+     * managed by this scope.
+     *
+     * @param scope              the department-type scope being evaluated
+     * @param targetDepartmentId id of the department the resource belongs to
+     * @return {@code true} if the target department is covered by this scope
      */
     private boolean isDepartmentWithinScope(UserAccessScope scope, Long targetDepartmentId) {
         if (targetDepartmentId == null || scope.getDepartment() == null) {
             return false;
         }
         Long scopeDepartmentId = scope.getDepartment().getId();
-        // Nếu không bao gồm phòng ban con -> Chỉ so sánh chính xác ID phòng ban
+        // Scope does not include sub-departments -> only an exact department id match counts
         if (!scope.isIncludeSubDepartments()) {
             return scopeDepartmentId.equals(targetDepartmentId);
         }
-        // Nếu bao gồm phòng ban con -> Đệ quy lấy tất cả ID phòng ban con cháu để kiểm tra
+        // Scope includes sub-departments -> recursively fetch all descendant department ids to check against
         List<Long> allowedDepartmentIds = departmentRepository.findSelfAndDescendantIds(scopeDepartmentId);
         return allowedDepartmentIds.contains(targetDepartmentId);
     }

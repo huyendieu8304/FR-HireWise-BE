@@ -20,31 +20,34 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 
 /**
- * Client tương tác với Keycloak Admin REST API, dùng thư viện chính thức
- * {@code org.keycloak:keycloak-admin-client} (thay vì tự gọi RestClient +
- * tự quản lý lấy/làm mới admin access token bằng tay như bản trước) -
- * thư viện này đã bọc sẵn việc lấy token qua Client Credentials grant và
- * tự làm mới khi hết hạn (qua {@code TokenManager} nội bộ của
- * {@link Keycloak}), nên chỉ cần khởi tạo 1 lần và tái sử dụng như
- * singleton bean (an toàn cho nhiều thread).
- *
- * Dùng 1 Service Account riêng (client credentials grant, role
- * "manage-users" trên realm HireWise - xem setup-keycloak.md mục 2.3),
- * KHÔNG dùng chung client "hirewise-be" (resource server) hay client công
- * khai của FE (xem FE-Keycloak-Setup.md).
- *
- * Cung cấp 4 chức năng chính:
- *  1. createUser / deleteUser           : đồng bộ tạo/xoá user (UC-02).
- *  2. forceLogout                       : đăng xuất bắt buộc (best-effort).
- *  3. assignRealmRole / revokeRealmRole : đồng bộ gán/thu hồi Role (UC-03).
+ * Client for talking to the Keycloak Admin REST API, using the official
+ * {@code org.keycloak:keycloak-admin-client} library (instead of hand-rolling
+ * RestClient calls and manually fetching/refreshing the admin access token
+ * as the previous version did) - this library already wraps token
+ * acquisition via the Client Credentials grant and auto-refreshes it on
+ * expiry (through {@link Keycloak}'s internal {@code TokenManager}), so it
+ * only needs to be built once and reused as a singleton bean (thread-safe).
+ * <p>
+ * Uses a dedicated Service Account (client credentials grant, with the
+ * "manage-users" role on the HireWise realm - see setup-keycloak.md
+ * section 2.3), NOT the shared "hirewise-be" client (resource server) nor
+ * the FE's public client (see FE-Keycloak-Setup.md).
+ * <p>
+ * Provides 4 main capabilities:
+ * <ol>
+ *   <li>createUser / deleteUser           : syncs user creation/deletion (UC-02).</li>
+ *   <li>forceLogout                       : forced logout (best-effort).</li>
+ *   <li>assignRealmRole / revokeRealmRole : syncs role grant/revoke (UC-03).</li>
+ * </ol>
  */
 @Slf4j
 @Component
 public class KeycloakAdminClient {
 
-    /** requiredAction đánh dấu tài khoản chưa có mật khẩu - Keycloak sẽ bắt
-     * user đặt mật khẩu ở lần đăng nhập đầu, dùng làm cơ chế "kích hoạt"
-     * (EM-01) khi kết hợp với {@code executeActionsEmail}. */
+    /** requiredAction that marks an account as not having a password yet -
+     * Keycloak will force the user to set one on first login, which we use
+     * as the "activation" mechanism (EM-01) together with
+     * {@code executeActionsEmail}. */
     private static final List<String> ACTIVATION_REQUIRED_ACTIONS = List.of("UPDATE_PASSWORD");
 
     private final Keycloak adminClient;
@@ -59,12 +62,13 @@ public class KeycloakAdminClient {
         this.realm = issuerUri.substring(issuerUri.indexOf("/realms/") + "/realms/".length());
         this.configured = !adminClientId.isBlank() && !adminClientSecret.isBlank();
 
-        // KeycloakBuilder.build() KHONG tu goi network - viec xin access token
-        // (va tu lam moi khi het han) chi xay ra "lazily" o lan goi API dau
-        // tien, qua TokenManager noi bo cua thu vien. Vi vay an toan de build
-        // 1 lan duy nhat o day du app.keycloak.admin.* co dang trong hay khong
-        // (method nao thuc su can goi Keycloak deu tu kiem tra `configured`
-        // truoc, xem cac method ben duoi).
+        // KeycloakBuilder.build() does NOT make any network call itself - fetching
+        // the access token (and auto-refreshing it on expiry) only happens
+        // "lazily" on the first actual API call, through the library's internal
+        // TokenManager. It is therefore safe to build this once here regardless
+        // of whether app.keycloak.admin.* is actually configured (every method
+        // that really needs to call Keycloak checks `configured` first - see
+        // the methods below).
         this.adminClient = KeycloakBuilder.builder()
                 .serverUrl(realmBaseUrl)
                 .realm(realm)
@@ -79,25 +83,31 @@ public class KeycloakAdminClient {
     }
 
     /**
-     * UC-02: Tạo user mới trên Keycloak (HR Admin thêm nhân sự).
+     * UC-02: Creates a new user in Keycloak (HR Admin onboarding a new
+     * hire).
+     * <p>
+     * This is a MANDATORY synchronous operation (unlike {@code forceLogout})
+     * - on failure it MUST throw {@link KeycloakSyncException} so
+     * {@code UserAdminService} rolls back the transaction; we must never
+     * write an internal {@code users} record while we're not certain the
+     * Keycloak account actually exists.
+     * <p>
+     * Setting {@code requiredActions=UPDATE_PASSWORD} makes Keycloak treat
+     * this as an account with no password yet; the subsequent call to
+     * {@code executeActionsEmail} makes Keycloak send the first-time
+     * "set your password" email itself (acting as the EM-01 activation
+     * email, using Keycloak's already-configured SMTP - HireWise-BE does
+     * not need its own SMTP setup for this flow).
      *
-     * Đây là thao tác BẮT BUỘC đồng bộ (khác với forceLogout) - nếu thất
-     * bại, PHẢI ném {@link KeycloakSyncException} để {@code UserAdminService}
-     * rollback transaction, không được ghi bản ghi {@code users} nội bộ nào
-     * khi chưa chắc chắn tài khoản Keycloak đã tồn tại.
-     *
-     * requiredActions=UPDATE_PASSWORD khiến Keycloak coi đây là tài khoản
-     * chưa có mật khẩu; gọi tiếp {@code executeActionsEmail} để Keycloak tự
-     * gửi email đặt mật khẩu lần đầu (đóng vai trò email kích hoạt EM-01,
-     * dùng SMTP đã cấu hình sẵn ở Keycloak - HireWise-BE không cần tự cài
-     * SMTP riêng cho luồng này).
-     *
-     * @return keycloakId (UUID) của user vừa tạo, dùng làm {@code users.keycloak_id}
+     * @param email    email address of the new user; also used as the Keycloak username
+     * @param fullName display name to set as the user's first name in Keycloak
+     * @return the newly created user's keycloakId (UUID), stored as {@code users.keycloak_id}
+     * @throws KeycloakSyncException if the admin client is not configured, or the create call fails
      */
     public String createUser(String email, String fullName) {
         if (!configured) {
-            log.error("Keycloak admin client chua duoc cau hinh (app.keycloak.admin.client-id/secret) - "
-                    + "khong the tao user Keycloak cho email={}", LogMaskUtils.maskEmail(email));
+            log.error("Keycloak admin client is not configured (app.keycloak.admin.client-id/secret) - "
+                    + "cannot create Keycloak user for email={}", LogMaskUtils.maskEmail(email));
             throw new KeycloakSyncException(ErrorCode.KEYCLOAK_USER_SYNC_FAILED, email);
         }
 
@@ -113,7 +123,7 @@ public class KeycloakAdminClient {
 
         try (Response response = usersResource.create(newUser)) {
             if (response.getStatus() != Response.Status.CREATED.getStatusCode()) {
-                log.error("Tao user Keycloak that bai cho email={}: HTTP {}",
+                log.error("Failed to create Keycloak user for email={}: HTTP {}",
                         LogMaskUtils.maskEmail(email), response.getStatus());
                 throw new KeycloakSyncException(ErrorCode.KEYCLOAK_USER_SYNC_FAILED, email);
             }
@@ -123,80 +133,92 @@ public class KeycloakAdminClient {
         } catch (KeycloakSyncException e) {
             throw e;
         } catch (Exception e) {
-            log.error("Tao user Keycloak that bai cho email={}: {}", LogMaskUtils.maskEmail(email), e.getMessage());
+            log.error("Failed to create Keycloak user for email={}: {}", LogMaskUtils.maskEmail(email), e.getMessage());
             throw new KeycloakSyncException(ErrorCode.KEYCLOAK_USER_SYNC_FAILED, email);
         }
     }
 
     /**
-     * Kích hoạt Keycloak tự gửi email "đặt mật khẩu lần đầu" (EM-01) cho
-     * user vừa tạo. Best-effort RIÊNG với createUser(): nếu bước này lỗi
-     * (vd realm chưa cấu hình SMTP), user Keycloak vẫn đã được tạo hợp lệ -
-     * HR Admin có thể bấm "Gửi lại email kích hoạt" thủ công trên Admin
-     * Console sau, không cần rollback cả việc tạo user.
+     * Triggers Keycloak to send the "set your password" first-login email
+     * (EM-01) for a newly created user. This is best-effort SEPARATELY from
+     * createUser(): if this step fails (e.g. the realm has no SMTP
+     * configured), the Keycloak user has still been created successfully -
+     * the HR Admin can manually click "Resend activation email" in the
+     * Admin Console later, no need to roll back the user creation.
      */
     private void triggerActivationEmail(UsersResource usersResource, String keycloakId) {
         try {
             usersResource.get(keycloakId).executeActionsEmail(ACTIVATION_REQUIRED_ACTIONS);
         } catch (Exception e) {
-            log.warn("Gui email kich hoat (EM-01) that bai cho keycloakUserId={}: {}", keycloakId, e.getMessage());
+            log.warn("Failed to send activation email (EM-01) for keycloakUserId={}: {}", keycloakId, e.getMessage());
         }
     }
 
     /**
-     * Compensating action cho createUser(): xoá user "mồ côi" bên Keycloak
-     * nếu bước ghi DB nội bộ ngay sau đó thất bại (vd DB tạm gián đoạn) -
-     * xem {@code UserAdminService#create}. Best-effort - chỉ log lỗi, KHÔNG
-     * ném exception (tránh che mất exception gốc đã gây ra rollback).
+     * Compensating action for createUser(): deletes the "orphaned" Keycloak
+     * user if the subsequent internal DB write fails (e.g. a transient DB
+     * outage) - see {@code UserAdminService#create}. Best-effort - only
+     * logs the error, does NOT throw (so it doesn't mask the original
+     * exception that triggered the rollback).
+     *
+     * @param keycloakUserId the orphaned Keycloak user id to remove; a no-op if {@code null}
      */
     public void deleteUser(String keycloakUserId) {
         if (!configured || keycloakUserId == null) {
             return;
         }
         try {
-            // Dung UserResource#remove() (goi tren tung user, tra ve void) thay
-            // vi UsersResource#delete(id) - on dinh giua cac phien ban thu vien
-            // hon vi khong phu thuoc kieu tra ve (Response vs void).
+            // Uses UserResource#remove() (called per-user, returns void) instead of
+            // UsersResource#delete(id) - more stable across library versions since
+            // it doesn't depend on a specific return type (Response vs void).
             realmResource().users().get(keycloakUserId).remove();
         } catch (Exception e) {
-            log.error("Compensate: xoa user Keycloak 'mo coi' that bai cho keycloakUserId={} - "
-                    + "CAN DON THU CONG tren Admin Console: {}", keycloakUserId, e.getMessage());
+            log.error("Compensate: failed to delete orphaned Keycloak user for keycloakUserId={} - "
+                    + "MANUAL CLEANUP REQUIRED in the Admin Console: {}", keycloakUserId, e.getMessage());
         }
     }
 
     /**
-     * Bắt buộc huỷ toàn bộ Session đang hoạt động của user trên Keycloak
-     * (thu hồi Token - BR-AUTH-04).
+     * Force-terminates every active session for a user in Keycloak (revokes
+     * tokens - BR-AUTH-04).
+     * <p>
+     * Note: this is an ADDITIONAL defense-in-depth measure, best-effort by
+     * policy. If it fails (Keycloak unreachable, missing config, ...), only
+     * a warning is logged - it does NOT throw, so it never interrupts the
+     * primary account-lock flow ({@code users.status} has already been set
+     * to BLOCKED/DISABLED successfully in the internal DB by this point -
+     * that is the actual source of truth for BR-AUTH-07).
      *
-     * Lưu ý: đây là cơ chế phòng vệ BỔ SUNG theo chính sách Best-effort.
-     * Nếu gặp lỗi (Keycloak ngắt kết nối, thiếu config...), chỉ ghi log
-     * cảnh báo chứ KHÔNG ném exception, để không làm gián đoạn luồng khoá
-     * tài khoản chính (users.status đã được set BLOCKED/DISABLED thành
-     * công ở DB nội bộ rồi - đó mới là nguồn sự thật cho BR-AUTH-07).
+     * @param keycloakUserId the Keycloak user whose sessions should be terminated
      */
     public void forceLogout(String keycloakUserId) {
         if (!configured) {
-            log.warn("Keycloak admin client chua duoc cau hinh (app.keycloak.admin.client-id/secret) - "
-                    + "bo qua force-logout cho keycloakUserId={}", keycloakUserId);
+            log.warn("Keycloak admin client is not configured (app.keycloak.admin.client-id/secret) - "
+                    + "skipping force-logout for keycloakUserId={}", keycloakUserId);
             return;
         }
         try {
             realmResource().users().get(keycloakUserId).logout();
         } catch (Exception e) {
-            log.warn("Force-logout Keycloak that bai cho keycloakUserId={}: {}", keycloakUserId, e.getMessage());
+            log.warn("Keycloak force-logout failed for keycloakUserId={}: {}", keycloakUserId, e.getMessage());
         }
     }
 
     /**
-     * UC-03: Gán Realm Role trên Keycloak cho user (đồng bộ với phân quyền
-     * hệ thống nội bộ). Bắt buộc đồng bộ - nếu thất bại, PHẢI ném
-     * KeycloakSyncException để Rollback giao dịch ghi DB nội bộ (xem
+     * UC-03: Assigns a Realm Role to a user in Keycloak (keeping it in sync
+     * with the internal system's permissions). Mandatory synchronous
+     * operation - on failure it MUST throw KeycloakSyncException so the
+     * internal DB write is rolled back (see
      * {@code RoleAssignmentService#assignRole}).
+     *
+     * @param keycloakUserId Keycloak user to grant the role to
+     * @param roleCode       realm role name, must already exist in Keycloak
+     * @throws KeycloakSyncException if the admin client is not configured, the role does not exist, or the call fails
      */
     public void assignRealmRole(String keycloakUserId, String roleCode) {
         if (!configured) {
-            log.error("Keycloak admin client chua duoc cau hinh - khong the gan role '{}' "
-                    + "that ben Keycloak cho keycloakUserId={}", roleCode, keycloakUserId);
+            log.error("Keycloak admin client is not configured - cannot assign role '{}' "
+                    + "in Keycloak for keycloakUserId={}", roleCode, keycloakUserId);
             throw new KeycloakSyncException(ErrorCode.KEYCLOAK_ROLE_SYNC_FAILED, roleCode);
         }
         try {
@@ -205,23 +227,28 @@ public class KeycloakAdminClient {
         } catch (KeycloakSyncException e) {
             throw e;
         } catch (Exception e) {
-            log.error("Gan realm role '{}' that bai cho keycloakUserId={}: {}", roleCode, keycloakUserId, e.getMessage());
+            log.error("Failed to assign realm role '{}' for keycloakUserId={}: {}", roleCode, keycloakUserId, e.getMessage());
             throw new KeycloakSyncException(ErrorCode.KEYCLOAK_ROLE_SYNC_FAILED, roleCode);
         }
     }
 
     /**
-     * UC-03/AF-01: Thu hồi (gỡ) 1 Realm Role đã gán cho user trên Keycloak -
-     * đối ngẫu với {@link #assignRealmRole}. Cũng là thao tác BẮT BUỘC đồng
-     * bộ: nếu thất bại, DB nội bộ không được coi như đã thu hồi xong (tránh
-     * tình trạng DB nói "hết quyền" trong khi JWT lần đăng nhập sau của
-     * user vẫn còn role cũ do Keycloak chưa gỡ) - xem
-     * {@code RoleAssignmentService#revokeRole}.
+     * UC-03/AF-01: Revokes (removes) a Realm Role previously assigned to a
+     * user in Keycloak - the counterpart of {@link #assignRealmRole}. Also
+     * a MANDATORY synchronous operation: on failure, the internal DB must
+     * not be treated as having revoked it (to avoid a situation where the
+     * DB says "access removed" while the user's next-login JWT from
+     * Keycloak still carries the old role because Keycloak never actually
+     * removed it) - see {@code RoleAssignmentService#revokeRole}.
+     *
+     * @param keycloakUserId Keycloak user to revoke the role from
+     * @param roleCode       realm role name, must already exist in Keycloak
+     * @throws KeycloakSyncException if the admin client is not configured, the role does not exist, or the call fails
      */
     public void revokeRealmRole(String keycloakUserId, String roleCode) {
         if (!configured) {
-            log.error("Keycloak admin client chua duoc cau hinh - khong the thu hoi role '{}' "
-                    + "that ben Keycloak cho keycloakUserId={}", roleCode, keycloakUserId);
+            log.error("Keycloak admin client is not configured - cannot revoke role '{}' "
+                    + "in Keycloak for keycloakUserId={}", roleCode, keycloakUserId);
             throw new KeycloakSyncException(ErrorCode.KEYCLOAK_ROLE_SYNC_FAILED, roleCode);
         }
         try {
@@ -230,21 +257,21 @@ public class KeycloakAdminClient {
         } catch (KeycloakSyncException e) {
             throw e;
         } catch (Exception e) {
-            log.error("Thu hoi realm role '{}' that bai cho keycloakUserId={}: {}", roleCode, keycloakUserId, e.getMessage());
+            log.error("Failed to revoke realm role '{}' for keycloakUserId={}: {}", roleCode, keycloakUserId, e.getMessage());
             throw new KeycloakSyncException(ErrorCode.KEYCLOAK_ROLE_SYNC_FAILED, roleCode);
         }
     }
 
     /**
-     * Tra cứu Role Representation (chứa id nội bộ của Keycloak cho role đó)
-     * theo tên Role - dùng chung cho cả assign lẫn revoke.
+     * Looks up the Role Representation (which carries Keycloak's internal
+     * id for that role) by role name - shared by both assign and revoke.
      */
     private RoleRepresentation fetchRealmRole(String roleCode) {
         try {
             return realmResource().roles().get(roleCode).toRepresentation();
         } catch (NotFoundException e) {
-            log.error("Khong tim thay realm role '{}' ben Keycloak - can tao role nay truoc "
-                    + "(xem setup-keycloak.md muc 2.2)", roleCode);
+            log.error("Realm role '{}' not found in Keycloak - this role must be created first "
+                    + "(see setup-keycloak.md section 2.2)", roleCode);
             throw new KeycloakSyncException(ErrorCode.KEYCLOAK_ROLE_SYNC_FAILED, roleCode);
         }
     }

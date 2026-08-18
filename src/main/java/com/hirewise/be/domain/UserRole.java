@@ -9,9 +9,10 @@ import lombok.NoArgsConstructor;
 import java.time.Instant;
 
 /**
- * Gan 1 role cho 1 user, co lich su hieu luc (validFrom/validTo) - 1 user
- * co the giu nhieu role dong thoi (vd vua Recruiter vua Interviewer), nen
- * day la N-N co thuoc tinh rieng chu khong phai @ManyToMany don thuan.
+ * Assigns a role to a user, with a validity period ({@code validFrom}/
+ * {@code validTo}) - a user can hold several roles at once (e.g. both
+ * Recruiter and Interviewer), so this is an N-N relationship with its own
+ * attributes rather than a plain {@code @ManyToMany}.
  */
 @Entity
 @Table(name = "user_roles")

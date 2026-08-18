@@ -14,17 +14,18 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Đọc role của user từ access token do Keycloak phát hành và chuyển
- * thành {@link GrantedAuthority} cho Spring Security dùng trong
- * hasRole()/hasAuthority()/@PreAuthorize.
- *
- * Keycloak để role ở 2 chỗ trong JWT:
- *  - "realm_access.roles"                -> realm role (áp dụng toàn hệ thống)
- *  - "resource_access.<clientId>.roles"  -> client role (chỉ áp dụng cho 1 client)
- *
- * Converter này gộp cả 2, thêm tiền tố "ROLE_" (chuẩn của Spring Security)
- * và uppercase để dùng được với hasRole("ADMIN") thay vì phải gọi
- * hasAuthority("ROLE_ADMIN").
+ * Reads the current user's roles from the Keycloak-issued access token and
+ * converts them into {@link GrantedAuthority} instances for Spring Security
+ * to use in {@code hasRole()}/{@code hasAuthority()}/{@code @PreAuthorize}.
+ * <p>
+ * Keycloak stores roles in two places in the JWT:
+ * <ul>
+ *   <li>{@code realm_access.roles} - realm roles (apply system-wide)</li>
+ *   <li>{@code resource_access.<clientId>.roles} - client roles (apply only to one client)</li>
+ * </ul>
+ * This converter merges both, adds the {@code "ROLE_"} prefix (Spring
+ * Security's convention) and uppercases the role name so it can be used
+ * with {@code hasRole("ADMIN")} instead of {@code hasAuthority("ROLE_ADMIN")}.
  */
 @Component
 public class KeycloakRoleConverter implements Converter<Jwt, Collection<GrantedAuthority>> {
@@ -32,9 +33,9 @@ public class KeycloakRoleConverter implements Converter<Jwt, Collection<GrantedA
     private static final String ROLE_PREFIX = "ROLE_";
 
     /**
-     * clientId của client (resource) trong Keycloak mà bạn gán client role
-     * cho user, dùng để đọc resource_access.<clientId>.roles.
-     * Nếu bạn chỉ dùng realm roles, có thể để trống (app.keycloak.resource-client-id=)
+     * Keycloak client id whose client-scoped roles are read from
+     * {@code resource_access.<clientId>.roles}. Leave blank
+     * ({@code app.keycloak.resource-client-id=}) if only realm roles are used.
      */
     private final String resourceClientId;
 
@@ -43,18 +44,24 @@ public class KeycloakRoleConverter implements Converter<Jwt, Collection<GrantedA
         this.resourceClientId = resourceClientId;
     }
 
+    /**
+     * @param jwt the validated access token issued by Keycloak
+     * @return the merged set of realm + client authorities, each prefixed
+     *         with {@code "ROLE_"} and uppercased
+     */
     @Override
     @SuppressWarnings("unchecked")
     public Collection<GrantedAuthority> convert(Jwt jwt) {
         Set<GrantedAuthority> authorities = new HashSet<>();
 
-        // 1. realm_access.roles
+        // 1. realm_access.roles - apply across the whole realm
         Map<String, Object> realmAccess = jwt.getClaim("realm_access");
         if (realmAccess != null && realmAccess.get("roles") instanceof List<?> realmRoles) {
             realmRoles.forEach(role -> authorities.add(toAuthority((String) role)));
         }
 
-        // 2. resource_access.<clientId>.roles
+        // 2. resource_access.<clientId>.roles - only merged in when a resource
+        // client id has been configured (client-scoped roles are optional).
         if (resourceClientId != null && !resourceClientId.isBlank()) {
             Map<String, Object> resourceAccess = jwt.getClaim("resource_access");
             if (resourceAccess != null && resourceAccess.get(resourceClientId) instanceof Map<?, ?> clientAccess) {

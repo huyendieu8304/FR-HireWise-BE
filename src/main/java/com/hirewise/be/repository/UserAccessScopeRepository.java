@@ -8,10 +8,25 @@ import org.springframework.data.repository.query.Param;
 import java.time.Instant;
 import java.util.List;
 
+/**
+ * Repository for {@link UserAccessScope} entities.
+ */
 public interface UserAccessScopeRepository extends JpaRepository<UserAccessScope, Long> {
 
-    /** RBAC layer 3: toan bo scope dang hieu luc tai thoi diem `now` cua 1
-     * user (BR-RBAC-05: co the co nhieu dong DEPARTMENT - UNION khi check). */
+    /**
+     * RBAC layer 3: returns all access scopes currently in effect for a
+     * user as of {@code now}.
+     * <p>
+     * BR-RBAC-05: a user may have several DEPARTMENT scope rows at once,
+     * so callers must combine/union the results rather than expecting a
+     * single scope.
+     *
+     * @param userId id of the user whose active scopes are resolved
+     * @param now    point in time to evaluate scope validity against
+     * @return scopes valid at {@code now}
+     */
+    // Filters on validFrom/validTo so only scopes currently within their
+    // validity window are returned; validTo of null means no expiry.
     @Query("""
             SELECT s FROM UserAccessScope s
             WHERE s.user.id = :userId

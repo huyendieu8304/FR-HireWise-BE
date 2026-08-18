@@ -6,23 +6,24 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Bảng quản lý chính sách Ownership (Access Policy Table).
- *
- * Định nghĩa quy tắc: Cùng 1 Permission, vai trò (Role) này có thể YÊU CẦU phải là Owner mới được làm,
- * nhưng vai trò khác lại KHÔNG CẦN (ví dụ: Recruiter sửa Job thì phải là Owner của Job đó,
- * nhưng Hiring Manager hoặc Giám đốc duyệt Job thì không cần phải là Owner).
+ * Ownership policy table (Access Policy Table).
+ * <p>
+ * Defines the rule: for the same permission, one role may REQUIRE the user
+ * to be the resource owner, while another role does NOT (e.g. a Recruiter
+ * editing a job must own that job, but a Hiring Manager or Director
+ * approving a job does not need to own it).
  */
 @Component
 public class OwnershipPolicyRegistry {
 
-    /** Key dùng để tra cứu Ma trận Policy: cặp (PermissionCode, RoleCode) */
+    /** Lookup key for the policy matrix: (permissionCode, roleCode) pair. */
     private record Key(String permissionCode, String roleCode) {
     }
 
     /**
-     * Ma trận cấu hình tĩnh các quy tắc Ownership:
+     * Static configuration matrix of ownership rules:
      * - Key: (Permission, Role)
-     * - Value: true = Bắt buộc phải là Owner, false = Không cần là Owner.
+     * - Value: {@code true} = ownership is required, {@code false} = ownership is not required.
      */
     private static final Map<Key, Boolean> POLICY = Map.of(
             new Key(PermissionCodes.JOB_EDIT, "RECRUITER"), true,
@@ -34,13 +35,19 @@ public class OwnershipPolicyRegistry {
     );
 
     /**
-     * Kiểm tra xem người dùng có bị bắt buộc kiểm tra Ownership hay không.
+     * Determines whether the current user must pass the ownership check for
+     * this permission.
+     * <p>
+     * Rule: if EVERY role the user has that grants {@code permissionCode}
+     * requires ownership -> returns {@code true}. If AT LEAST ONE granting
+     * role does NOT require ownership (e.g. Hiring Manager) -> returns
+     * {@code false}, since that role's broader access wins. A
+     * (permission, role) pair not declared in the table defaults to NOT
+     * requiring ownership.
      *
-     * QUY TẮC BẮT BỎ:
-     * - Nếu TẤT CẢ các Role mà user đang có (được cấp quyền permissionCode này) ĐỀU yêu cầu Ownership -> Trả về TRUE.
-     * - Nếu có ÍT NHẤT 1 Role cấp quyền này mà KHÔNG yêu cầu Ownership (ví dụ: Hiring Manager) -> Trả về FALSE
-     *   (Quyền rộng hơn của Role đó sẽ thắng).
-     * - Mặc định nếu cặp (Permission, Role) không khai báo trong bảng -> KHÔNG yêu cầu Ownership.
+     * @param permissionCode    the permission being checked
+     * @param grantingRoleCodes the user's roles that are granted this permission
+     * @return {@code true} if ownership must be verified before allowing the action
      */
     public boolean requiresOwnership(String permissionCode, Set<String> grantingRoleCodes) {
         if (grantingRoleCodes.isEmpty()) {
@@ -49,7 +56,7 @@ public class OwnershipPolicyRegistry {
         for (String roleCode : grantingRoleCodes) {
             Boolean required = POLICY.get(new Key(permissionCode, roleCode));
             if (required == null || !required) {
-                return false; // Thắng ngay nếu tìm thấy 1 role không cần ownership
+                return false; // Found one role that doesn't require ownership -> it wins immediately
             }
         }
         return true;

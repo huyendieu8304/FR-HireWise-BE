@@ -1,10 +1,12 @@
 package com.hirewise.be.exception;
 
 /**
- * RBAC layer 4 (Ownership): permission + scope hop le nhung user khong
- * phai chu so huu duoc chi dinh cua resource cu the (vd khong phai
- * recruiter_id cua Job dang sua). Xem AccountNotActiveException ve ly do
- * dung chung ErrorCode.FORBIDDEN.
+ * RBAC layer 4 (Ownership): permission and scope checks both passed, but
+ * the user is not the designated owner of this specific resource (e.g.
+ * not the {@code recruiter_id} of the Job being edited).
+ * <p>
+ * See {@link AccountNotActiveException} for why this hardcodes
+ * {@link ErrorCode#FORBIDDEN} instead of a more specific code.
  */
 public class NotResourceOwnerException extends ForbiddenActionException {
     public NotResourceOwnerException() {

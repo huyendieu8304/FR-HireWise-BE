@@ -15,14 +15,17 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * Aspect trung tâm xử lý AOP cho annotation @RequiresOwnership.
- *
- * Tự động chặn các Request vào Controller method có gắn @RequiresOwnership để thực thi đầy đủ
- * 3 lớp phân quyền theo đúng thứ tự chuẩn (BR-RBAC-08):
- *   1. Load tài nguyên từ DB (1 lần duy nhất)
- *   2. Layer 2: Role-Permission Check
- *   3. Layer 3: Access Scope Check
- *   4. Layer 4: Ownership Check
+ * Central AOP aspect implementing the {@link RequiresOwnership} annotation.
+ * <p>
+ * Intercepts requests to controller methods annotated with
+ * {@code @RequiresOwnership} and enforces all 3 authorization layers in the
+ * required order (BR-RBAC-08):
+ * <ol>
+ *   <li>Load the resource from the DB (once only)</li>
+ *   <li>Layer 2: Role-Permission check</li>
+ *   <li>Layer 3: Access Scope check</li>
+ *   <li>Layer 4: Ownership check</li>
+ * </ol>
  */
 @Aspect
 @Component
@@ -44,6 +47,24 @@ public class OwnershipAspect {
         this.accessControlService = accessControlService;
     }
 
+    /**
+     * Advice that runs around any method annotated with {@code @RequiresOwnership},
+     * enforcing Layer 2, Layer 3 and Layer 4 authorization before letting the
+     * method proceed.
+     *
+     * @param joinPoint         the intercepted method invocation
+     * @param requiresOwnership the annotation instance present on the method,
+     *                          carrying the resource type, id parameter name and
+     *                          permission code to check
+     * @return the result of the intercepted method if all authorization checks pass
+     * @throws IllegalStateException if the intercepted method doesn't declare a
+     *      {@code CurrentUser} parameter, or doesn't have a parameter matching
+     *      {@code idParam}
+     * @throws com.hirewise.be.exception.PermissionDeniedException if Layer 2 denies access
+     * @throws com.hirewise.be.exception.OutOfScopeException if Layer 3 denies access
+     * @throws NotResourceOwnerException if Layer 4 denies access
+     * @throws Throwable whatever the intercepted method itself throws
+     */
     @Around("@annotation(requiresOwnership)")
     public Object enforce(ProceedingJoinPoint joinPoint, RequiresOwnership requiresOwnership) throws Throwable {
         MethodSignature signature = (MethodSignature) joinPoint.getSignature();
@@ -53,7 +74,7 @@ public class OwnershipAspect {
         Object resourceId = null;
         CurrentUser currentUser = null;
 
-        // BƯỚC 1: Trích xuất các tham số từ Controller Method Signature (resourceId & currentUser)
+        // STEP 1: Extract resourceId and currentUser from the controller method's arguments
         if (paramNames != null) {
             for (int i = 0; i < paramNames.length; i++) {
                 if (paramNames[i].equals(requiresOwnership.idParam())) {
@@ -67,7 +88,7 @@ public class OwnershipAspect {
             }
         }
 
-        // Validate tham số bắt buộc
+        // Validate the required parameters were found
         if (currentUser == null) {
             throw new IllegalStateException(
                     "@RequiresOwnership yeu cau method co 1 tham so CurrentUser (vd @CurrentUserPrincipal): "
@@ -79,27 +100,28 @@ public class OwnershipAspect {
                             + "\" tren " + signature.toShortString());
         }
 
-        // BƯỚC 2: Tìm Resolver phù hợp và Load tài nguyên từ DB (chỉ query 1 lần)
+        // STEP 2: Find the matching resolver and load the resource from the DB (single query)
         OwnershipResolver resolver = resolverRegistry.get(requiresOwnership.resourceType());
         OwnedResource resolved = resolver.resolve(resourceId);
 
-        // BƯỚC 3: Thực hiện kiểm tra Layer 2 (Role-Permission) và Layer 3 (Access Scope)
+        // STEP 3: Run Layer 2 (Role-Permission) and Layer 3 (Access Scope) checks
         accessControlService.checkAccess(currentUser, requiresOwnership.permission(), resolved.toResourceContext());
 
-        // BƯỚC 4: Thực hiện kiểm tra Layer 4 (Ownership)
-        // 4.1 Lọc ra danh sách các Role của User mà ĐƯỢC CẤP quyền permission này
+        // STEP 4: Run the Layer 4 (Ownership) check
+        // 4.1 Narrow down to the roles the user has that are actually GRANTED this permission
         Set<String> grantingRoles = currentUser.roles().stream()
                 .filter(role -> rolePermissionCache.grants(role, requiresOwnership.permission()))
                 .collect(Collectors.toSet());
 
-        // 4.2 Tra cứu chính sách & So sánh ID người sở hữu với ID người dùng hiện tại
+        // 4.2 Look up the ownership policy and compare the resource owner against the current user;
+        // if every granting role requires ownership for this permission and the user isn't the
+        // owner, deny access (see OwnershipPolicyRegistry for the "any role wins" rule).
         if (policyRegistry.requiresOwnership(requiresOwnership.permission(), grantingRoles)
                 && !Objects.equals(resolved.ownerId(), currentUser.userId())) {
-            // Ném lỗi 403 / Not Owner
             throw new NotResourceOwnerException();
         }
 
-        // Cho phép Controller Method thực thi tiếp nếu tất cả các bước kiểm tra đều hợp lệ
+        // All authorization layers passed -> let the controller method run
         return joinPoint.proceed();
     }
 }

@@ -15,14 +15,17 @@ import java.io.IOException;
 import java.util.stream.Collectors;
 
 /**
- * Gan userId + role cua user hien tai vao MDC ngay sau khi Spring Security
- * xac thuc xong JWT, de MOI dong log phat sinh trong phan con lai cua
- * request (service, exception handler...) tu dong co san 2 field nay -
- * dev khong phai tu tay truyen userId/role vao tung câu log.
- *
- * Duoc dang ky vao filter chain qua SecurityConfig#securityFilterChain
- * bang addFilterAfter(..., BearerTokenAuthenticationFilter.class) de dam
- * bao SecurityContext da co Authentication luc filter nay chay.
+ * Puts the current user's id and roles into MDC right after Spring Security
+ * finishes authenticating the JWT, so EVERY log line emitted for the rest
+ * of the request (services, exception handlers, ...) automatically carries
+ * these two fields - developers don't have to manually pass userId/role
+ * into every log statement.
+ * <p>
+ * Registered into the filter chain via
+ * {@code SecurityConfig#securityFilterChain} using
+ * {@code addFilterAfter(..., BearerTokenAuthenticationFilter.class)} to
+ * guarantee the {@code SecurityContext} already holds an {@code Authentication}
+ * by the time this filter runs.
  */
 public class UserContextMdcFilter extends OncePerRequestFilter {
 
@@ -52,8 +55,8 @@ public class UserContextMdcFilter extends OncePerRequestFilter {
                     .collect(Collectors.joining(","));
             MDC.put(MDC_USER_ROLES, roles);
         }
-        // Request khong co JWT hop le (vd endpoint permitAll, hoac 401) ->
-        // khong co gi de gan, cac dong log lien quan se hien thi userId/role
-        // rong - dieu do la binh thuong va mong doi.
+        // No valid JWT on this request (e.g. a permitAll endpoint, or a 401) ->
+        // nothing to populate; related log lines will show empty userId/role,
+        // which is expected and fine.
     }
 }

@@ -1,8 +1,9 @@
 package com.hirewise.be.exception;
 
 /**
- * Danh sách mã lỗi nghiệp vụ của hệ thống. Mỗi ErrorCode ứng với 1 key
- * trong messages.properties để hỗ trợ i18n cho message trả về client.
+ * Business error codes used across the system. Each value maps to a
+ * message key in {@code messages.properties} to support localized (i18n)
+ * messages returned to the client.
  */
 public enum ErrorCode {
 
@@ -26,7 +27,7 @@ public enum ErrorCode {
     ROLE_NOT_ASSIGNABLE("error.role_not_assignable"),
     ROLE_NOT_ASSIGNED("error.role_not_assigned"),
 
-    // Keycloak sync (xem KeycloakAdminClient)
+    // Keycloak sync (see KeycloakAdminClient)
     KEYCLOAK_ROLE_SYNC_FAILED("error.keycloak_role_sync_failed"),
     KEYCLOAK_USER_SYNC_FAILED("error.keycloak_user_sync_failed");
 

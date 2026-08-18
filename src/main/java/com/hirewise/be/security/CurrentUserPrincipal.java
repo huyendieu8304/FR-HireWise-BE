@@ -6,8 +6,9 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
- * Đánh dấu tham số controller cần được resolve thành {@link CurrentUser}
- * từ JWT của request hiện tại. Xem {@link CurrentUserResolver}.
+ * Marks a controller parameter that should be resolved into a
+ * {@link CurrentUser} from the current request's JWT. See
+ * {@link CurrentUserResolver}.
  */
 @Target(ElementType.PARAMETER)
 @Retention(RetentionPolicy.RUNTIME)

@@ -9,10 +9,11 @@ import lombok.NoArgsConstructor;
 import java.time.Instant;
 
 /**
- * RBAC layer 3 (Access Scope). 1 user co the co NHIEU dong scope_type=
- * DEPARTMENT tro toi nhieu phong ban khac nhau cung luc (BR-RBAC-05 - UNION
- * khi check quyen). includeSubDepartments=true (mac dinh) nghia la scope ke
- * thua xuong ca phong ban con (BR-RBAC-06).
+ * RBAC layer 3 (Access Scope). A user can have MULTIPLE rows with
+ * {@code scope_type=DEPARTMENT} pointing at different departments at the
+ * same time (BR-RBAC-05 - they're UNIONed when checking permissions).
+ * {@code includeSubDepartments=true} (the default) means the scope is
+ * also inherited down to descendant departments (BR-RBAC-06).
  */
 @Entity
 @Table(name = "user_access_scopes")
@@ -39,8 +40,11 @@ public class UserAccessScope {
     @JoinColumn(name = "department_id")
     private Department department;
 
-    /** scope_type=JOB: id truc tiep cua job_postings, khong map quan he JPA
-     * de tranh phu thuoc vong hai chieu giua 2 entity chi vi 1 truong scope. */
+    /**
+     * For {@code scope_type=JOB}: the raw id of the job_postings row. Not
+     * mapped as a JPA relationship, to avoid a two-way dependency cycle
+     * between the two entities just for this one scope field.
+     */
     @Column(name = "job_id")
     private Long jobId;
 

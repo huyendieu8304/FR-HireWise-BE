@@ -8,8 +8,8 @@ import lombok.NoArgsConstructor;
 import java.util.Set;
 
 /**
- * Trả về để FE/Postman kiểm tra token đang mang thông tin/role gì -
- * hữu ích khi debug tích hợp Keycloak.
+ * Returned so the FE/Postman can inspect what info and roles the current
+ * token carries - useful when debugging the Keycloak integration.
  */
 @Data
 @NoArgsConstructor

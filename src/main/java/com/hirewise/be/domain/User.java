@@ -9,14 +9,16 @@ import lombok.NoArgsConstructor;
 import java.time.Instant;
 
 /**
- * Ban sao noi bo cua danh tinh Keycloak (keycloakId = claim "sub"). Can
- * thiet de RBAC layer 1 (Authentication Freshness, BR-AUTH-07) kiem tra
- * status=ACTIVE tai thoi diem xu ly request, va lam goc cho user_roles /
- * user_access_scopes (JWT khong the mang du lieu nay vi no thay doi ngoai
- * vong doi cua 1 access token).
- *
- * department o day CHI la phong ban to chuc CHINH (BR-RBAC-05), KHONG phai
- * pham vi truy cap du lieu - xem UserAccessScope.
+ * Internal mirror of a Keycloak identity ({@code keycloakId} = the "sub"
+ * claim). Needed so RBAC layer 1 (Authentication Freshness, BR-AUTH-07)
+ * can check {@code status=ACTIVE} at request-processing time, and serves
+ * as the anchor for {@code user_roles} / {@code user_access_scopes} (a JWT
+ * can't carry this data since it can change within the lifetime of an
+ * access token).
+ * <p>
+ * {@code department} here is ONLY the user's primary organizational
+ * department (BR-RBAC-05), NOT their data access scope - see
+ * {@link UserAccessScope}.
  */
 @Entity
 @Table(name = "users")

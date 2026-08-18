@@ -7,9 +7,10 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
- * Quyen nguyen tu (RESOURCE_ACTION, vd JOB_EDIT). isWrite phan biet hanh
- * dong doc/ghi de RBAC layer 3 (Access Scope) biet can can_write=true hay
- * chi can_write=false tren access scope lien quan.
+ * An atomic permission (RESOURCE_ACTION, e.g. JOB_EDIT). {@code isWrite}
+ * distinguishes read vs. write actions so that RBAC layer 3 (Access Scope)
+ * knows whether the related access scope needs can_write=true, or
+ * can_write=false is enough.
  */
 @Entity
 @Table(name = "permissions")

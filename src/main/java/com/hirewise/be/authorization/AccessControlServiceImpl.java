@@ -8,8 +8,9 @@ import org.springframework.stereotype.Service;
 import java.util.Map;
 
 /**
- * Service trung tâm điều phối quá trình phân quyền (Authorization).
- * Phối hợp kiểm tra qua 2 lớp: Layer 2 (Role-Permission) và Layer 3 (Access Scope).
+ * Central service that orchestrates the authorization flow.
+ * Runs the check through two layers in order: Layer 2 (Role-Permission)
+ * followed by Layer 3 (Access Scope).
  */
 @Service
 public class AccessControlServiceImpl implements AccessControlService {
@@ -27,25 +28,26 @@ public class AccessControlServiceImpl implements AccessControlService {
         boolean requiresWrite = false;
         boolean granted = false;
 
-        // 1 Role-Permission
-        // Duyệt qua tất cả các role của user xem có role nào chứa permissionCode yêu cầu không
-        //todo check lai roles cua current user, hinh nhu co chua may cai role khac cua keycloak nua
+        // Layer 2: Role-Permission.
+        // Walk through every role the user has to find one that is granted permissionCode.
+        // TODO: double check current user's roles - it looks like some extra Keycloak roles
+        // get mixed in alongside the business roles, needs verification.
         for (String roleCode : user.roles()) {
             Map<String, Boolean> permissions = rolePermissionCache.permissionsOf(roleCode);
             if (permissions.containsKey(permissionCode)) {
                 granted = true;
-                requiresWrite = permissions.get(permissionCode); // Lấy cờ xác định đây là thao tác Đọc hay Ghi
-                break; // Tìm thấy quyền phù hợp thì dừng vòng lặp
+                requiresWrite = permissions.get(permissionCode); // Flag telling whether this permission covers a Read or a Write action
+                break; // Stop at the first role that grants the permission
             }
         }
 
-        //user khong thuoc role nao chua permission code -> access denied
+        // No role of the user grants this permission -> deny access before even checking scope.
         if (!granted) {
             throw new PermissionDeniedException();
         }
 
-        // 2 Access Scope
-        // Kiểm tra xem thao tác trên tài nguyên (resource) có nằm trong phạm vi cho phép của user không
+        // Layer 3: Access Scope.
+        // Check whether the operation on this resource falls within the user's allowed scope.
         if (!accessScopeService.isWithinScope(user.userId(), resource, requiresWrite)) {
             throw new OutOfScopeException();
         }

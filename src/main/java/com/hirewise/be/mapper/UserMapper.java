@@ -7,11 +7,26 @@ import com.hirewise.be.dto.response.UserResponseDto;
 
 import java.util.Set;
 
+/**
+ * Converts {@link User} and {@link UserAccessScope} entities into their response DTOs.
+ */
 public final class UserMapper {
 
     private UserMapper() {
     }
 
+    /**
+     * Converts a {@link User} entity into its response DTO.
+     * <p>
+     * Role codes are not resolved here - the caller must already have looked them up
+     * (e.g. from Keycloak or the user-role association) and pass them in, to keep this
+     * mapper limited to plain entity-to-DTO conversion.
+     *
+     * @param entity    user entity to convert
+     * @param roleCodes role codes assigned to the user, resolved by the caller
+     * @return the corresponding response DTO; department fields are {@code null}
+     *         when the user has no department assigned
+     */
     public static UserResponseDto toResponseDto(User entity, Set<String> roleCodes) {
         return UserResponseDto.builder()
                 .id(entity.getId())
@@ -27,6 +42,13 @@ public final class UserMapper {
                 .build();
     }
 
+    /**
+     * Converts a {@link UserAccessScope} entity into its response DTO.
+     *
+     * @param entity access scope entity to convert
+     * @return the corresponding response DTO; department fields are {@code null}
+     *         when the scope is not tied to a specific department
+     */
     public static UserAccessScopeResponseDto toResponseDto(UserAccessScope entity) {
         return UserAccessScopeResponseDto.builder()
                 .id(entity.getId())

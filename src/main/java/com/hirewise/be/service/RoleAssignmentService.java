@@ -36,10 +36,11 @@ import java.time.Instant;
 import java.util.List;
 
 /**
- * UC-03: HR Admin gan Role va Access Scope cho tai khoan (ROLE_ASSIGN, chi
- * HR_ADMIN). Ca 2 thao tac (gan role & gan scope) cung nam sau 1 permission
- * duy nhat theo dung mo ta trong ma tran quyen muc 2.2: "ROLE_ASSIGN - Gan
- * Role VA pham vi phong ban/Job cho tai khoan".
+ * UC-03: lets an HR Admin assign roles and access scopes to accounts
+ * (permission {@code ROLE_ASSIGN}, HR_ADMIN only). Both operations (assigning
+ * a role and assigning a scope) sit behind the same single permission, as
+ * described in the permission matrix section 2.2: "ROLE_ASSIGN - assign a
+ * Role AND a department/Job scope to an account".
  */
 @Slf4j
 @Service
@@ -57,6 +58,15 @@ public class RoleAssignmentService {
     KeycloakAdminClient keycloakAdminClient;
     Clock clock;
 
+    /**
+     * UC-03: assigns a role to a user, syncing the change to Keycloak first
+     * and only then recording it locally.
+     *
+     * @param userId      id of the user receiving the role
+     * @param request     role code plus optional validity window
+     * @param currentUser HR Admin performing the assignment
+     * @throws ResourceNotFoundException if the user or role code cannot be found
+     */
     @Transactional
     public void assignRole(Long userId, AssignRoleRequestDto request, CurrentUser currentUser) {
         accessControlService.checkAccess(currentUser, PermissionCodes.ROLE_ASSIGN, ResourceContext.none());
@@ -65,15 +75,16 @@ public class RoleAssignmentService {
         Role role = roleRepository.findByCode(request.getRoleCode())
                 .orElseThrow(() -> new ResourceNotFoundException(ErrorCode.ROLE_NOT_FOUND, request.getRoleCode()));
 
-        // Gan role THAT ben Keycloak TRUOC khi ghi ban ghi noi bo. Ly do thu
-        // tu: role dung de CHO PHEP (RBAC layer 2, AccessControlService) doc
-        // tu CurrentUser.roles() - tuc claim cua JWT - KHONG phai bang
-        // user_roles ben duoi. Neu ghi DB truoc ma buoc goi Keycloak sau do
-        // that bai, HR Admin se thay "da gan role" tren UI trong khi user
-        // chua thuc su co quyen gi - dung dung thu tu nay de tranh dung dang
-        // du lieu gay nham lan do. Loi o day (KeycloakSyncException, xem
-        // KeycloakAdminClient#assignRealmRole) se lam @Transactional rollback,
-        // khong ban ghi user_roles nao duoc tao.
+        // Assign the role in Keycloak FIRST, before writing the local record.
+        // Reason for this order: the role that actually GRANTS access (RBAC
+        // layer 2, AccessControlService) is read from CurrentUser.roles() -
+        // i.e. the JWT claims - NOT from the local user_roles table below. If
+        // we wrote to the DB first and the Keycloak call failed afterwards,
+        // the HR Admin would see "role assigned" in the UI while the user
+        // doesn't actually have the permission yet - this order avoids that
+        // misleading inconsistent state. A failure here (KeycloakSyncException,
+        // see KeycloakAdminClient#assignRealmRole) rolls back the
+        // @Transactional method, so no user_roles record gets created.
         keycloakAdminClient.assignRealmRole(user.getKeycloakId(), role.getCode());
 
         Instant now = Instant.now(clock);
@@ -85,25 +96,34 @@ public class RoleAssignmentService {
                 .build();
         userRoleRepository.save(userRole);
 
-        // userRoleRepository.save() o tren chi phuc vu hien thi/luu vet noi
-        // bo (UserResponseDto.roleCodes) - nguon quyet dinh quyen that su la
-        // Keycloak (buoc goi ben tren). evict() de UserSnapshot (userId,
-        // status) khong giu ban ghi cu qua het TTL cho user nay.
+        // The userRoleRepository.save() above only serves local
+        // display/audit purposes (UserResponseDto.roleCodes) - the actual
+        // source of truth for permissions is Keycloak (the call above).
+        // evict() ensures the UserSnapshot (userId, status) cache doesn't
+        // keep a stale entry for this user past its TTL.
         //
-        // Luu y gioi han: role moi chi co hieu luc trong JWT MOI cua user
-        // (dang nhap lai/refresh token) - phien dang nhap hien tai (neu co)
-        // khong tu dong cap nhat quyen ngay lap tuc.
+        // Known limitation: the new role only takes effect on the user's
+        // NEXT JWT (re-login/token refresh) - their current session, if any,
+        // does not gain the permission immediately.
         userDirectoryService.evict(user.getKeycloakId());
         log.info("Assigned role {} to user {} (synced to Keycloak)", role.getCode(), userId);
     }
 
     /**
-     * UC-03/AF-01 (Thu hoi quyen): doi ngau voi assignRole() - dong bo THU
-     * HOI role tren Keycloak TRUOC (cung nguyen tac thu tu voi assignRole:
-     * loi Keycloak thi rollback, khong dong bat ky ban ghi user_roles nao),
-     * roi moi set valid_to=now cho MOI ban ghi user_roles dang hieu luc cua
-     * role do (1 user co the duoc gan cung 1 role nhieu lan/nhieu khoang
-     * thoi gian - dong het, khong chi ban ghi dau tien tim thay).
+     * UC-03/AF-01 (revoke access): the mirror image of {@link #assignRole};
+     * revokes the role in Keycloak FIRST (same ordering rationale as
+     * {@code assignRole}: a Keycloak failure rolls back the transaction
+     * before any user_roles record is touched), then sets {@code validTo=now}
+     * on EVERY currently-active user_roles record for that role (a user can
+     * be assigned the same role multiple times over different validity
+     * windows - all of them are closed out, not just the first one found).
+     *
+     * @param userId      id of the user losing the role
+     * @param roleCode    code of the role to revoke
+     * @param currentUser HR Admin performing the revocation
+     * @throws ResourceNotFoundException if the user cannot be found, or if the
+     *                                    user has no currently-active assignment
+     *                                    of {@code roleCode}
      */
     @Transactional
     public void revokeRole(Long userId, String roleCode, CurrentUser currentUser) {
@@ -126,15 +146,27 @@ public class RoleAssignmentService {
         activeAssignments.forEach(ur -> ur.setValidTo(now));
         userRoleRepository.saveAll(activeAssignments);
 
-        // Cung luu y gioi han nhu assignRole(): role bi thu hoi chi mat hieu
-        // luc tu lan dang nhap lai/refresh token TIEP THEO cua user - phien
-        // hien tai (neu con han) khong tu dong mat quyen ngay lap tuc, du
-        // AuthenticationFreshnessFilter (Layer 1) van chan duoc neu tai
-        // khoan bi Blocked hoan toan (khac voi thu hoi 1 role rieng le).
+        // Same limitation as assignRole(): the revoked role only loses effect
+        // on the user's NEXT re-login/token refresh - their current session
+        // (if still valid) doesn't lose the permission immediately, although
+        // AuthenticationFreshnessFilter (Layer 1) can still block them if the
+        // account is fully Blocked (a different case from revoking a single
+        // role).
         userDirectoryService.evict(user.getKeycloakId());
         log.info("Revoked role {} from user {} (synced to Keycloak)", roleCode, userId);
     }
 
+    /**
+     * UC-03: assigns an access scope (department- or job-level) to a user.
+     *
+     * @param userId      id of the user receiving the scope
+     * @param request     scope type plus the target department/job and validity window
+     * @param currentUser HR Admin performing the assignment
+     * @return the created access scope
+     * @throws ResourceNotFoundException if the user or the referenced department cannot be found
+     * @throws BadRequestException       if the scope type is DEPARTMENT/JOB but the
+     *                                    corresponding id is missing from the request
+     */
     @Transactional
     public UserAccessScopeResponseDto assignAccessScope(Long userId, AssignAccessScopeRequestDto request, CurrentUser currentUser) {
         accessControlService.checkAccess(currentUser, PermissionCodes.ROLE_ASSIGN, ResourceContext.none());
@@ -144,12 +176,14 @@ public class RoleAssignmentService {
         Department department = null;
         Long jobId = null;
         if (request.getScopeType() == ScopeType.DEPARTMENT) {
+            // A department-scoped grant must point at a real department.
             if (request.getDepartmentId() == null) {
                 throw new BadRequestException(ErrorCode.INVALID_INPUT);
             }
             department = departmentRepository.findById(request.getDepartmentId())
                     .orElseThrow(() -> new ResourceNotFoundException(ErrorCode.DEPARTMENT_NOT_FOUND, request.getDepartmentId()));
         } else if (request.getScopeType() == ScopeType.JOB) {
+            // A job-scoped grant must point at a specific job id.
             if (request.getJobId() == null) {
                 throw new BadRequestException(ErrorCode.INVALID_INPUT);
             }
@@ -173,6 +207,14 @@ public class RoleAssignmentService {
         return UserMapper.toResponseDto(scope);
     }
 
+    /**
+     * Lists all access scopes assigned to a user.
+     *
+     * @param userId      id of the user whose scopes are being listed
+     * @param currentUser user requesting access; must have view permission
+     * @return the user's access scopes; empty if none are assigned
+     * @throws ResourceNotFoundException if the user cannot be found
+     */
     public List<UserAccessScopeResponseDto> listAccessScopes(Long userId, CurrentUser currentUser) {
         accessControlService.checkAccess(currentUser, PermissionCodes.USER_VIEW, ResourceContext.none());
         findUserOrThrow(userId);

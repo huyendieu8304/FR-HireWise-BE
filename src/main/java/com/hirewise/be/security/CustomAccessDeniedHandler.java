@@ -9,9 +9,10 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerExceptionResolver;
 
 /**
- * User đã xác thực (có JWT hợp lệ) nhưng không đủ role -> uỷ quyền lại cho
- * GlobalExceptionHandler xử lý để trả JSON đồng nhất với lỗi 403 khác,
- * thay vì Spring Security tự trả response mặc định.
+ * Handles the case where a user is authenticated (has a valid JWT) but
+ * lacks the required role - delegates to {@code GlobalExceptionHandler} so
+ * the 403 response has the same JSON shape as every other error, instead
+ * of letting Spring Security write its own default response body.
  */
 @Component
 public class CustomAccessDeniedHandler implements AccessDeniedHandler {

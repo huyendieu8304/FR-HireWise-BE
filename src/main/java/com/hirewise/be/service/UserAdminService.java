@@ -37,12 +37,14 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * UC-02: HR Admin quan ly tai khoan noi bo (USER_CREATE/USER_UPDATE/USER_VIEW).
- * create() tu goi KeycloakAdminClient de tao that tai khoan Keycloak (+ gui
- * email kich hoat EM-01) TRUOC, roi moi ghi ban ghi `users` noi bo lien ket
- * voi keycloakId vua tao - can thiet de RBAC hoat dong (BR-AUTH-07,
- * BR-RBAC-05). Neu buoc ghi DB that bai sau khi Keycloak da tao xong, goi
- * compensating action (deleteUser) de khong bo lai user "mo coi" ben Keycloak.
+ * UC-02: lets an HR Admin manage internal accounts
+ * (USER_CREATE/USER_UPDATE/USER_VIEW). {@link #create} calls
+ * {@code KeycloakAdminClient} to actually create the Keycloak account (and
+ * send the EM-01 activation email) FIRST, then writes the internal `users`
+ * record linked to the newly created keycloakId - required for RBAC to work
+ * (BR-AUTH-07, BR-RBAC-05). If the DB write fails after Keycloak has already
+ * created the account, a compensating action ({@code deleteUser}) is invoked
+ * so an "orphaned" user is not left behind in Keycloak.
  */
 @Slf4j
 @Service
@@ -58,23 +60,33 @@ public class UserAdminService {
     KeycloakAdminClient keycloakAdminClient;
     Clock clock;
 
+    /**
+     * UC-02: creates a new internal user account, provisioning it in
+     * Keycloak before persisting the local record.
+     *
+     * @param request     new user's email, full name and optional department
+     * @param currentUser HR Admin performing the creation
+     * @return the created user
+     * @throws BusinessConflictException if the email is already in use
+     * @throws ResourceNotFoundException if the requested department cannot be found
+     */
     @Transactional
     public UserResponseDto create(CreateUserRequestDto request, CurrentUser currentUser) {
         accessControlService.checkAccess(currentUser, PermissionCodes.USER_CREATE, ResourceContext.none());
 
-        // check email đã duoc su dung cho tk nao truoc do chua
+        // Reject duplicate accounts before touching Keycloak.
         if (userRepository.existsByEmail(request.getEmail())) {
             throw new BusinessConflictException(ErrorCode.USER_ALREADY_EXISTS);
         }
 
-        // tim department de gan vao user
         Department department = resolveDepartmentOrNull(request.getDepartmentId());
 
-        // Tao user THAT ben Keycloak TRUOC khi ghi ban ghi noi bo (nguoc lai
-        // se co 1 ban ghi `users` "ma" khong dang nhap duoc neu Keycloak loi
-        // ma khong co cach nao bao ngay cho HR Admin). Loi o day
-        // (KeycloakSyncException) lam @Transactional rollback, khong ban ghi
-        // `users` nao duoc tao - xem KeycloakAdminClient#createUser.
+        // Create the account in Keycloak FIRST, before writing the local
+        // record (the reverse order would risk a "ghost" `users` record that
+        // can't log in if Keycloak fails, with no immediate way to notify the
+        // HR Admin). A failure here (KeycloakSyncException) rolls back the
+        // @Transactional method, so no `users` record gets created - see
+        // KeycloakAdminClient#createUser.
         String keycloakId = keycloakAdminClient.createUser(request.getEmail(), request.getFullName());
 
         Instant now = Instant.now(clock);
@@ -94,21 +106,37 @@ public class UserAdminService {
                     user.getId(), LogMaskUtils.maskEmail(user.getEmail()), keycloakId);
             return UserMapper.toResponseDto(user, Set.of());
         } catch (RuntimeException dbFailure) {
-            // Compensate: don user "mo coi" ben Keycloak vi buoc ghi DB noi bo
-            // that bai ngay sau khi Keycloak da tao xong - giu 2 nguon du lieu
-            // nhat quan (best-effort, khong nuot loi goc de @Transactional van
-            // rollback binh thuong).
+            // Compensating action: remove the now-orphaned Keycloak user
+            // since the local DB write failed right after Keycloak succeeded
+            // - keeps the two data sources consistent (best-effort; the
+            // original exception is rethrown, not swallowed, so
+            // @Transactional still rolls back normally).
             keycloakAdminClient.deleteUser(keycloakId);
             throw dbFailure;
         }
     }
 
+    /**
+     * Retrieves a single user by id, including their currently active role codes.
+     *
+     * @param id          user id
+     * @param currentUser user requesting access; must have view permission
+     * @return the user
+     * @throws ResourceNotFoundException if no user exists with {@code id}
+     */
     public UserResponseDto getById(Long id, CurrentUser currentUser) {
         accessControlService.checkAccess(currentUser, PermissionCodes.USER_VIEW, ResourceContext.none());
         User user = findOrThrow(id);
         return UserMapper.toResponseDto(user, activeRoleCodes(id));
     }
 
+    /**
+     * Searches all internal users with pagination.
+     *
+     * @param pageable    pagination/sort parameters
+     * @param currentUser user requesting access; must have view permission
+     * @return a page of users, each including their currently active role codes
+     */
     public PagedResponseDto<UserResponseDto> search(Pageable pageable, CurrentUser currentUser) {
         accessControlService.checkAccess(currentUser, PermissionCodes.USER_VIEW, ResourceContext.none());
         Page<User> page = userRepository.findAll(pageable);
@@ -118,6 +146,17 @@ public class UserAdminService {
         return PagedResponseDto.from(page, content);
     }
 
+    /**
+     * Updates a user's status (e.g. active/blocked). Evicts the cached
+     * Keycloak session snapshot, and force-logs-out the user in Keycloak
+     * whenever the new status is anything other than ACTIVE.
+     *
+     * @param id          user id
+     * @param request     the new status
+     * @param currentUser HR Admin performing the update
+     * @return the updated user
+     * @throws ResourceNotFoundException if no user exists with {@code id}
+     */
     @Transactional
     public UserResponseDto updateStatus(Long id, UpdateUserStatusRequestDto request, CurrentUser currentUser) {
         accessControlService.checkAccess(currentUser, PermissionCodes.USER_UPDATE, ResourceContext.none());
@@ -127,8 +166,9 @@ public class UserAdminService {
         user.setUpdatedAt(Instant.now(clock));
         userRepository.save(user);
 
-        // revoke user
         userDirectoryService.evict(user.getKeycloakId());
+        // Any non-ACTIVE status (e.g. blocked) must immediately end the
+        // user's current session, not just prevent future logins.
         if (request.getStatus() != UserStatus.ACTIVE) {
             keycloakAdminClient.forceLogout(user.getKeycloakId());
         }

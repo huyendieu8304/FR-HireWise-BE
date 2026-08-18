@@ -6,12 +6,18 @@ import org.springframework.context.annotation.Configuration;
 import java.time.Clock;
 
 /**
- * Bean Clock dùng trong service thay vì gọi thẳng Instant.now()/LocalDateTime.now(),
- * để dễ mock thời gian khi viết unit test.
+ * Exposes a {@link Clock} bean so services obtain the current time through
+ * dependency injection instead of calling {@code Instant.now()} /
+ * {@code LocalDateTime.now()} directly, making it possible to inject a
+ * fixed or mocked clock in unit tests.
  */
 @Configuration
 public class ClockConfig {
 
+    /**
+     * @return a UTC-based system clock used as the single source of "now"
+     *         across the application
+     */
     @Bean
     public Clock clock() {
         return Clock.systemUTC();

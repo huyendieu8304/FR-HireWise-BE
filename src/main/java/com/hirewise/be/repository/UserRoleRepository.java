@@ -8,10 +8,21 @@ import org.springframework.data.repository.query.Param;
 import java.time.Instant;
 import java.util.List;
 
+/**
+ * Repository for {@link UserRole} entities.
+ */
 public interface UserRoleRepository extends JpaRepository<UserRole, Long> {
 
-    /** Ma role (code) dang hieu luc tai thoi diem `now` cua 1 user - 1 user
-     * co the giu nhieu role dong thoi. */
+    /**
+     * Returns the role codes currently in effect for a user as of
+     * {@code now}. A user may hold several roles at the same time.
+     *
+     * @param userId id of the user whose active roles are resolved
+     * @param now    point in time to evaluate role validity against
+     * @return codes of the roles valid at {@code now}
+     */
+    // Filters on validFrom/validTo so only roles currently within their
+    // validity window are returned; validTo of null means no expiry.
     @Query("""
             SELECT ur.role.code FROM UserRole ur
             WHERE ur.user.id = :userId

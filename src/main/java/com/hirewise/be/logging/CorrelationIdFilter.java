@@ -13,13 +13,19 @@ import java.io.IOException;
 import java.util.UUID;
 
 /**
- * Gắn 1 correlationId cho mỗi request (lấy từ header "X-Correlation-ID"
- * nếu client gửi lên, không thì tự sinh) và đưa vào MDC để mọi log line
- * trong quá trình xử lý request đều có thể trace theo cùng 1 id.
- * Chạy trước filter chain của Spring Security nên áp dụng cho mọi request,
- * kể cả request bị 401/403.
+ * Attaches a correlation id to every incoming request so all log lines produced
+ * while handling that request can be traced back to the same id.
+ * <p>
+ * The id is read from the "X-Correlation-ID" request header when the client sends
+ * one; otherwise a new random UUID is generated. The id is stored in the SLF4J
+ * {@link MDC} for the duration of the request, exposed as a request attribute, and
+ * echoed back on the response header so the caller can correlate the response with
+ * server-side logs.
+ * <p>
+ * Ordered to run before Spring Security's filter chain ({@code @Order(Integer.MIN_VALUE)})
+ * so every request gets a correlation id, including requests rejected with 401/403.
  */
-//todo: cần quy định de FE gui kem header kia len
+// TODO: define a contract so the FE also sends this header along on its own requests
 @Component
 @Order(Integer.MIN_VALUE)
 public class CorrelationIdFilter extends OncePerRequestFilter {
@@ -31,6 +37,8 @@ public class CorrelationIdFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
         String correlationId = request.getHeader(CORRELATION_ID_HEADER);
+        // No id supplied by the caller (or upstream service) - generate one so this
+        // request is still traceable end to end.
         if (correlationId == null || correlationId.trim().isEmpty()) {
             correlationId = UUID.randomUUID().toString();
         }
@@ -42,6 +50,8 @@ public class CorrelationIdFilter extends OncePerRequestFilter {
         try {
             filterChain.doFilter(request, response);
         } finally {
+            // Always clear the MDC entry once the request completes, otherwise it can
+            // leak into the next request handled by the same pooled thread.
             MDC.remove(MDC_KEY);
         }
     }

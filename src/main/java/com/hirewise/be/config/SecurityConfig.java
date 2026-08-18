@@ -21,19 +21,20 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.web.servlet.HandlerExceptionResolver;
 
 /**
- * Spring Security cấu hình theo mô hình OAuth2 Resource Server: app KHÔNG
- * tự quản lý user/mật khẩu, chỉ xác thực chữ ký + hạn dùng của access
- * token do Keycloak phát hành (JWT), rồi map role trong token sang
- * GrantedAuthority để phục vụ RBAC.
- *
- * Việc lấy public key để verify JWT được Spring Boot tự động thực hiện
- * (qua JWK Set endpoint) dựa trên
- * spring.security.oauth2.resourceserver.jwt.issuer-uri khai báo trong
- * application.properties - không cần cấu hình thủ công JwtDecoder.
+ * Configures Spring Security as an OAuth2 resource server: the app does
+ * NOT manage users/passwords itself, it only verifies the signature and
+ * expiry of the access token (JWT) issued by Keycloak, then maps the
+ * roles carried in the token to {@code GrantedAuthority} for RBAC.
+ * <p>
+ * The public key used to verify the JWT is resolved automatically by
+ * Spring Boot (via the JWK Set endpoint) based on
+ * {@code spring.security.oauth2.resourceserver.jwt.issuer-uri} declared
+ * in application.properties - no manual {@code JwtDecoder} configuration
+ * is needed here.
  */
 @Configuration
 @EnableWebSecurity
-@EnableMethodSecurity // cho phép dùng @PreAuthorize("hasRole('ADMIN')") ở tầng service/controller
+@EnableMethodSecurity // Enables method-level checks such as @PreAuthorize("hasRole('ADMIN')") in the service/controller layers
 public class SecurityConfig {
 
     private final KeycloakRoleConverter keycloakRoleConverter;
@@ -54,6 +55,11 @@ public class SecurityConfig {
         this.handlerExceptionResolver = handlerExceptionResolver;
     }
 
+    /**
+     * @return the converter that turns realm/client roles carried by the
+     *         Keycloak-issued JWT into Spring Security
+     *         {@code GrantedAuthority} instances used by RBAC checks
+     */
     @Bean
     public JwtAuthenticationConverter jwtAuthenticationConverter() {
         JwtAuthenticationConverter converter = new JwtAuthenticationConverter();
@@ -61,37 +67,56 @@ public class SecurityConfig {
         return converter;
     }
 
+    /**
+     * Builds the HTTP security rule chain applied to every incoming
+     * request.
+     * <p>
+     * Authorization configured here only covers whether a request is
+     * authenticated at all (RBAC layer 1 at the URL level). Fine-grained
+     * permission/scope/ownership decisions (RBAC layers 2-4) are
+     * deliberately left to {@code AccessControlService}/
+     * {@code @RequiresOwnership} in the relevant service/controller (see
+     * the {@code authorization} package), so role-per-URL rules are not
+     * duplicated here as a second source of truth that could drift out
+     * of sync with the real permission logic.
+     *
+     * @param http the security builder to configure
+     * @return the filter chain applied to all requests
+     * @throws Exception if the underlying {@link HttpSecurity} builder fails to build
+     */
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
+            // Authentication is stateless JWT-based (no server session, see below),
+            // so there is no session-cookie-based CSRF risk to protect against.
             .csrf(AbstractHttpConfigurer::disable)
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .exceptionHandling(exceptions -> exceptions
-                    .authenticationEntryPoint(authenticationEntryPoint) // 401 - un-authentication thiếu/token sai
-                    .accessDeniedHandler(accessDeniedHandler)           // 403 - un-authorization đủ xác thực nhưng thiếu quyền
+                    .authenticationEntryPoint(authenticationEntryPoint) // 401 - not authenticated: missing/invalid token
+                    .accessDeniedHandler(accessDeniedHandler)           // 403 - authenticated but lacking the required permission
             )
             .authorizeHttpRequests(auth -> auth
-                    // Public: healthcheck, endpoint demo không cần đăng nhập
+                    // Public endpoints: healthcheck and demo endpoints that don't require login
                     .requestMatchers("/actuator/health/**").permitAll()
                     .requestMatchers(HttpMethod.GET, "/api/public/**").permitAll()
 
-                    // Mọi endpoint nghiệp vụ khác: chỉ cần JWT hợp lệ ở tầng URL. Quyết
-                    // định permission/scope/ownership cụ thể (RBAC layer 2-4) nằm ở
-                    // AccessControlService/@RequiresOwnership trong service/controller
-                    // liên quan - xem package authorization - KHÔNG lặp lại role-per-URL
-                    // ở đây nữa để tránh 2 nguồn sự thật xung đột nhau.
+                    // Every other business endpoint only needs a valid JWT at the URL level.
+                    // Concrete permission/scope/ownership decisions (RBAC layers 2-4) are
+                    // handled by AccessControlService/@RequiresOwnership in the relevant
+                    // service/controller - see the authorization package - so role-per-URL
+                    // rules are not repeated here and can't conflict with that source of truth.
                     .anyRequest().authenticated()
             )
             .oauth2ResourceServer(oauth2 -> oauth2
                     .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter()))
             )
-            // Gắn userId/role vào MDC ngay sau khi JWT được xác thực xong, để mọi
-            // log log.info(...)/log.warn(...) phát sinh sau đó (service, exception
-            // handler...) tự động có sẵn 2 field này - xem UserContextMdcFilter.
+            // Attach userId/role to the MDC right after the JWT is authenticated, so every
+            // log.info(...)/log.warn(...) call made afterwards (in services, exception
+            // handlers, etc.) automatically carries these two fields - see UserContextMdcFilter.
             .addFilterAfter(new UserContextMdcFilter(), BearerTokenAuthenticationFilter.class)
-            // RBAC layer 1 (Authentication Freshness, BR-AUTH-07) - phải chạy sau khi
-            // đã có Authentication (để đọc "sub") nhưng trước khi vào tới
-            // controller/@PreAuthorize, xem AuthenticationFreshnessFilter.
+            // RBAC layer 1 (Authentication Freshness, BR-AUTH-07) must run after an
+            // Authentication is available (needs to read "sub") but before the request
+            // reaches the controller/@PreAuthorize - see AuthenticationFreshnessFilter.
             .addFilterAfter(new AuthenticationFreshnessFilter(userDirectoryService, handlerExceptionResolver),
                     UserContextMdcFilter.class);
 

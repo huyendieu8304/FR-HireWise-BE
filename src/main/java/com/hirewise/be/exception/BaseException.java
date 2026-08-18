@@ -3,8 +3,12 @@ package com.hirewise.be.exception;
 import org.springframework.http.HttpStatus;
 
 /**
- * Lớp cha cho toàn bộ exception nghiệp vụ. GlobalExceptionHandler bắt
- * BaseException để build ErrorResponse thống nhất (kèm i18n message).
+ * Base class for all business exceptions in the application. Carries the
+ * {@link ErrorCode}, the HTTP status to respond with, and any message
+ * arguments needed to build the localized error message.
+ * <p>
+ * {@code GlobalExceptionHandler} catches every {@code BaseException} and
+ * builds a single, consistent {@code ErrorResponse} from it.
  */
 public abstract class BaseException extends RuntimeException {
 

@@ -1,23 +1,25 @@
 package com.hirewise.be.authorization;
 
 /**
- * Interface định nghĩa cách nạp dữ liệu cho từng loại tài nguyên cụ thể.
- *
- * Mỗi Entity trong hệ thống cần kiểm tra Ownership sẽ tạo một class triển khai Interface này.
+ * Defines how to load ownership/scope data for a specific resource type.
+ * <p>
+ * Each entity in the system that needs an ownership check has one
+ * implementation of this interface.
  */
 public interface OwnershipResolver {
 
     /**
-     * Trả về mã loại tài nguyên duy nhất (ví dụ: "JOB_POSITION").
-     * Khớp với RequiresOwnership#resourceType().
+     * Returns the unique resource type code (e.g. {@code "JOB_POSITION"}).
+     * Must match {@link RequiresOwnership#resourceType()}.
      */
     String resourceType();
 
     /**
-     * Query DB để lấy thông tin tài nguyên theo resourceId và đóng gói thành OwnedResource.
+     * Queries the DB for the resource identified by {@code resourceId} and
+     * packages the result into an {@link OwnedResource}.
      *
-     * @param resourceId ID của tài nguyên truyền từ Controller.
-     * @return OwnedResource chứa thông tin ownerId, departmentId, jobId.
+     * @param resourceId id of the resource, as passed in from the controller
+     * @return the resource's ownerId, departmentId and jobId
      */
     OwnedResource resolve(Object resourceId);
 }

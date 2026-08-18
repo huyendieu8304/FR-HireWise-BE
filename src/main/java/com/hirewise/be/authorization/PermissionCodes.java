@@ -1,11 +1,12 @@
 package com.hirewise.be.authorization;
 
 /**
- * Hang so cho ma permission (RBAC Design muc 2.2) - de goi
- * AccessControlService.checkAccess(...)/@RequiresOwnership co kiem tra o
- * thoi diem bien dich, thay vi go string tay de nham. Nguon su that ve
- * role nao duoc cap permission nao van la bang role_permissions trong DB
- * (xem V2__create_roles_and_permissions.sql), KHONG lap lai o day.
+ * Permission code constants (RBAC Design section 2.2) - lets callers use
+ * compile-time-checked constants instead of hand-typed strings when calling
+ * {@code AccessControlService.checkAccess(...)} / {@code @RequiresOwnership}.
+ * The source of truth for which role is granted which permission remains the
+ * {@code role_permissions} table in the DB (see
+ * {@code V2__create_roles_and_permissions.sql}) - it is NOT duplicated here.
  */
 public final class PermissionCodes {
 

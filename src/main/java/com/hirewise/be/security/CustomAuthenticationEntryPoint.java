@@ -9,9 +9,9 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerExceptionResolver;
 
 /**
- * Request không có JWT hoặc JWT không hợp lệ/hết hạn -> uỷ quyền lại cho
- * GlobalExceptionHandler để trả JSON đồng nhất (401) thay vì response mặc
- * định của Spring Security OAuth2 Resource Server.
+ * Handles requests with no JWT, or an invalid/expired one - delegates to
+ * {@code GlobalExceptionHandler} to return a consistent JSON 401 body
+ * instead of Spring Security OAuth2 Resource Server's default response.
  */
 @Component
 public class CustomAuthenticationEntryPoint implements AuthenticationEntryPoint {

@@ -9,9 +9,10 @@ import lombok.NoArgsConstructor;
 import java.time.Instant;
 
 /**
- * ROLE_ASSIGN (chi HR_ADMIN) - gan pham vi truy cap (RBAC layer 3) cho 1
- * user. BR-RBAC-05: 1 user co the co nhieu dong scope_type=DEPARTMENT tro
- * toi nhieu phong ban khac nhau cung luc - goi endpoint nay nhieu lan.
+ * Request body for ROLE_ASSIGN (HR_ADMIN only) - assigns an access scope
+ * (RBAC layer 3) to a user. Per BR-RBAC-05, a user can have multiple
+ * scope_type=DEPARTMENT rows pointing to different departments at once;
+ * call this endpoint multiple times to grant several.
  */
 @Data
 @NoArgsConstructor
@@ -21,17 +22,17 @@ public class AssignAccessScopeRequestDto {
     @NotNull(message = "{validation.access_scope.scope_type.required}")
     private ScopeType scopeType;
 
-    /** Bat buoc khi scopeType=DEPARTMENT. */
+    /** Required when scopeType is DEPARTMENT. */
     private Long departmentId;
 
-    /** Bat buoc khi scopeType=JOB. */
+    /** Required when scopeType is JOB. */
     private Long jobId;
 
-    /** BR-RBAC-06 - chi co y nghia khi scopeType=DEPARTMENT. Mac dinh true
-     * (ke thua xuong phong ban con) neu khong truyen. */
+    /** BR-RBAC-06: only meaningful when scopeType is DEPARTMENT. Defaults
+     * to true (inherits access to sub-departments) if not supplied. */
     private Boolean includeSubDepartments;
 
-    /** BR-RBAC-02 - mac dinh false (chi xem) neu khong truyen. */
+    /** BR-RBAC-02: defaults to false (read-only) if not supplied. */
     private Boolean canWrite;
 
     private Instant validFrom;

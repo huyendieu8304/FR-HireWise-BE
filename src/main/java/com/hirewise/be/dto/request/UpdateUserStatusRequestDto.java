@@ -6,7 +6,10 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-/** USER_UPDATE (chi HR_ADMIN) - khoa/mo khoa/vo hieu hoa tai khoan. */
+/**
+ * Request body for USER_UPDATE (HR_ADMIN only) - locks/unlocks/deactivates
+ * a user account.
+ */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor

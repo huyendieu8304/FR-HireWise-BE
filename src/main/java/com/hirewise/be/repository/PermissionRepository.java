@@ -8,14 +8,22 @@ import org.springframework.data.repository.query.Param;
 import java.util.List;
 import java.util.Optional;
 
+/**
+ * Repository for {@link Permission} entities.
+ */
 public interface PermissionRepository extends JpaRepository<Permission, Long> {
 
     Optional<Permission> findByCode(String code);
 
     /**
-     * Truy vấn danh sách quyền và cờ thao tác Ghi (is_write) theo ma roleCode.
-     * Sử dụng Native Query join trực tiếp bảng trung gian role_permissions để tối ưu hiệu năng.
+     * Returns the permission codes and their write flag (is_write) granted
+     * to the given role code.
+     *
+     * @param roleCode code of the role to look up permissions for
+     * @return permission codes and write flags granted to the role
      */
+    // Native query joins role_permissions directly to permissions/roles
+    // instead of loading the full entity graph, for performance.
     @Query(value = """
             SELECT p.code AS code, p.is_write AS writeFlag
             FROM permissions p
@@ -26,7 +34,8 @@ public interface PermissionRepository extends JpaRepository<Permission, Long> {
     List<RolePermissionRow> findByRoleCode(@Param("roleCode") String roleCode);
 
     /**
-     * Projection Interface để hứng kết quả từ Native Query.
+     * Projection interface for mapping the native query result of
+     * {@link #findByRoleCode(String)}.
      */
     interface RolePermissionRow {
         String getCode();
