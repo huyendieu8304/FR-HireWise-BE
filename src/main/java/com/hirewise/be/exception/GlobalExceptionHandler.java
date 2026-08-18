@@ -59,7 +59,11 @@ public class GlobalExceptionHandler {
         // WARN, khong phai ERROR: day la exception nghiep vu da luong truoc
         // (404/409/403...), app van hoat dong binh thuong. userId/userRoles da
         // co san trong MDC (UserContextMdcFilter) nen khong can log lai o day.
-        log.warn("Business exception [{}] at {}: {}", ex.getErrorCode().name(), request.getRequestURI(), detailMessage);
+        // Ten class (vd PermissionDeniedException, OutOfScopeException...) chi
+        // dung de audit noi bo lop RBAC nao tu choi - client van chi thay
+        // ErrorCode chung (BR-RBAC-03), khong lo chi tiet ra ngoai.
+        log.warn("Business exception [{}] ({}) at {}: {}", ex.getErrorCode().name(),
+                ex.getClass().getSimpleName(), request.getRequestURI(), detailMessage);
 
         ErrorResponse errorResponse = ErrorResponse.builder()
                 .timestamp(Instant.now().toString())
