@@ -30,8 +30,6 @@ public class AccessControlServiceImpl implements AccessControlService {
 
         // Layer 2: Role-Permission.
         // Walk through every role the user has to find one that is granted permissionCode.
-        // TODO: double check current user's roles - it looks like some extra Keycloak roles
-        // get mixed in alongside the business roles, needs verification.
         for (String roleCode : user.roles()) {
             Map<String, Boolean> permissions = rolePermissionCache.permissionsOf(roleCode);
             if (permissions.containsKey(permissionCode)) {

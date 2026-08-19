@@ -22,8 +22,6 @@ public interface PermissionRepository extends JpaRepository<Permission, Long> {
      * @param roleCode code of the role to look up permissions for
      * @return permission codes and write flags granted to the role
      */
-    // Native query joins role_permissions directly to permissions/roles
-    // instead of loading the full entity graph, for performance.
     @Query(value = """
             SELECT p.code AS code, p.is_write AS writeFlag
             FROM permissions p

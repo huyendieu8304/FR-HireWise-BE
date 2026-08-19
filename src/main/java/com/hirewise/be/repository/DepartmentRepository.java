@@ -21,8 +21,6 @@ public interface DepartmentRepository extends JpaRepository<Department, Long> {
      * @param rootId id of the department to start the traversal from
      * @return ids of {@code rootId} and all its descendant departments
      */
-    // Recursive CTE walks down parent_department_id from rootId to collect
-    // the whole subtree in one round trip instead of N+1 queries.
     @Query(value = """
             WITH RECURSIVE dept_tree AS (
                 SELECT department_id FROM departments WHERE department_id = :rootId

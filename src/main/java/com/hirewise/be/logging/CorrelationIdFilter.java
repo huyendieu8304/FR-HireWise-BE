@@ -25,7 +25,6 @@ import java.util.UUID;
  * Ordered to run before Spring Security's filter chain ({@code @Order(Integer.MIN_VALUE)})
  * so every request gets a correlation id, including requests rejected with 401/403.
  */
-// TODO: define a contract so the FE also sends this header along on its own requests
 @Component
 @Order(Integer.MIN_VALUE)
 public class CorrelationIdFilter extends OncePerRequestFilter {

@@ -22,9 +22,8 @@ public class WebMvcConfig implements WebMvcConfigurer {
     /**
      * Registers {@link CurrentUserResolver} so controller methods can
      * declare a {@code @CurrentUserPrincipal CurrentUser} parameter and
-     * have it resolved automatically from the authenticated JWT, instead
-     * of every controller manually casting {@code Authentication} to
-     * {@code Jwt} and reading claims by hand.
+     * have it resolved automatically from the authenticated request,
+     * instead of every controller manually reading claims by hand.
      *
      * @param resolvers the resolver list Spring MVC uses to bind
      *                   controller method arguments

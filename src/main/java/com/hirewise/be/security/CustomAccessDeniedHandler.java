@@ -9,9 +9,9 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerExceptionResolver;
 
 /**
- * Handles the case where a user is authenticated (has a valid JWT) but
- * lacks the required role - delegates to {@code GlobalExceptionHandler} so
- * the 403 response has the same JSON shape as every other error, instead
+ * Handles the case where a user is authenticated (has a valid access token)
+ * but lacks the required role - delegates to {@code GlobalExceptionHandler}
+ * so the 403 response has the same JSON shape as every other error, instead
  * of letting Spring Security write its own default response body.
  */
 @Component

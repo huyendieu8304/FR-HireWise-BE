@@ -21,9 +21,8 @@ import com.hirewise.be.repository.RoleRepository;
 import com.hirewise.be.repository.UserAccessScopeRepository;
 import com.hirewise.be.repository.UserRepository;
 import com.hirewise.be.repository.UserRoleRepository;
+import com.hirewise.be.security.ActiveRolesService;
 import com.hirewise.be.security.CurrentUser;
-import com.hirewise.be.security.KeycloakAdminClient;
-import com.hirewise.be.security.UserDirectoryService;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.experimental.FieldDefaults;
@@ -36,11 +35,7 @@ import java.time.Instant;
 import java.util.List;
 
 /**
- * UC-03: lets an HR Admin assign roles and access scopes to accounts
- * (permission {@code ROLE_ASSIGN}, HR_ADMIN only). Both operations (assigning
- * a role and assigning a scope) sit behind the same single permission, as
- * described in the permission matrix section 2.2: "ROLE_ASSIGN - assign a
- * Role AND a department/Job scope to an account".
+ * UC-03: lets an HR Admin assign roles and access scopes to accounts - permission {@code ROLE_ASSIGN}, HR_ADMIN only.
  */
 @Slf4j
 @Service
@@ -54,13 +49,11 @@ public class RoleAssignmentService {
     UserRoleRepository userRoleRepository;
     UserAccessScopeRepository userAccessScopeRepository;
     AccessControlService accessControlService;
-    UserDirectoryService userDirectoryService;
-    KeycloakAdminClient keycloakAdminClient;
+    ActiveRolesService activeRolesService;
     Clock clock;
 
     /**
-     * UC-03: assigns a role to a user, syncing the change to Keycloak first
-     * and only then recording it locally.
+     * assigns a role to a user.
      *
      * @param userId      id of the user receiving the role
      * @param request     role code plus optional validity window
@@ -75,18 +68,6 @@ public class RoleAssignmentService {
         Role role = roleRepository.findByCode(request.getRoleCode())
                 .orElseThrow(() -> new ResourceNotFoundException(ErrorCode.ROLE_NOT_FOUND, request.getRoleCode()));
 
-        // Assign the role in Keycloak FIRST, before writing the local record.
-        // Reason for this order: the role that actually GRANTS access (RBAC
-        // layer 2, AccessControlService) is read from CurrentUser.roles() -
-        // i.e. the JWT claims - NOT from the local user_roles table below. If
-        // we wrote to the DB first and the Keycloak call failed afterwards,
-        // the HR Admin would see "role assigned" in the UI while the user
-        // doesn't actually have the permission yet - this order avoids that
-        // misleading inconsistent state. A failure here (KeycloakSyncException,
-        // see KeycloakAdminClient#assignRealmRole) rolls back the
-        // @Transactional method, so no user_roles record gets created.
-        keycloakAdminClient.assignRealmRole(user.getKeycloakId(), role.getCode());
-
         Instant now = Instant.now(clock);
         UserRole userRole = UserRole.builder()
                 .user(user)
@@ -96,27 +77,21 @@ public class RoleAssignmentService {
                 .build();
         userRoleRepository.save(userRole);
 
-        // The userRoleRepository.save() above only serves local
-        // display/audit purposes (UserResponseDto.roleCodes) - the actual
-        // source of truth for permissions is Keycloak (the call above).
-        // evict() ensures the UserSnapshot (userId, status) cache doesn't
-        // keep a stale entry for this user past its TTL.
-        //
-        // Known limitation: the new role only takes effect on the user's
-        // NEXT JWT (re-login/token refresh) - their current session, if any,
-        // does not gain the permission immediately.
-        userDirectoryService.evict(user.getKeycloakId());
-        log.info("Assigned role {} to user {} (synced to Keycloak)", role.getCode(), userId);
+        // ActiveRolesService resolves roles live from user_roles (short-TTL
+        // cache) rather than baking them into the access token at login
+        // time, so evicting here makes the new role take effect within
+        // seconds - not only after the user's current token naturally
+        // expires or they log in again.
+        activeRolesService.evict(userId);
+        log.info("Assigned role {} to user {}", role.getCode(), userId);
     }
 
     /**
-     * UC-03/AF-01 (revoke access): the mirror image of {@link #assignRole};
-     * revokes the role in Keycloak FIRST (same ordering rationale as
-     * {@code assignRole}: a Keycloak failure rolls back the transaction
-     * before any user_roles record is touched), then sets {@code validTo=now}
-     * on EVERY currently-active user_roles record for that role (a user can
-     * be assigned the same role multiple times over different validity
-     * windows - all of them are closed out, not just the first one found).
+     * (revoke access): the mirror image of {@link #assignRole};
+     * sets {@code validTo=now} on EVERY currently-active {@code user_roles}
+     * record for that role (a user can be assigned the same role multiple
+     * times over different validity windows - all of them are closed out,
+     * not just the first one found).
      *
      * @param userId      id of the user losing the role
      * @param roleCode    code of the role to revoke
@@ -141,23 +116,19 @@ public class RoleAssignmentService {
             throw new ResourceNotFoundException(ErrorCode.ROLE_NOT_ASSIGNED, roleCode);
         }
 
-        keycloakAdminClient.revokeRealmRole(user.getKeycloakId(), roleCode);
-
         activeAssignments.forEach(ur -> ur.setValidTo(now));
         userRoleRepository.saveAll(activeAssignments);
 
-        // Same limitation as assignRole(): the revoked role only loses effect
-        // on the user's NEXT re-login/token refresh - their current session
-        // (if still valid) doesn't lose the permission immediately, although
-        // AuthenticationFreshnessFilter (Layer 1) can still block them if the
-        // account is fully Blocked (a different case from revoking a single
-        // role).
-        userDirectoryService.evict(user.getKeycloakId());
-        log.info("Revoked role {} from user {} (synced to Keycloak)", roleCode, userId);
+        activeRolesService.evict(userId);
+        log.info("Revoked role {} from user {}", roleCode, userId);
     }
 
     /**
-     * UC-03: assigns an access scope (department- or job-level) to a user.
+     * assigns an access scope (System/Department/Job-level) to a
+     * user. BR-RBAC-05 (multi-department) and BR-RBAC-06 (sub-department
+     * inheritance via {@code includeSubDepartments}) are represented as-is
+     * on the created row; a user may hold several scope rows at once, one
+     * call per department/job.
      *
      * @param userId      id of the user receiving the scope
      * @param request     scope type plus the target department/job and validity window

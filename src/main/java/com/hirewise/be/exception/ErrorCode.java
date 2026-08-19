@@ -27,9 +27,12 @@ public enum ErrorCode {
     ROLE_NOT_ASSIGNABLE("error.role_not_assignable"),
     ROLE_NOT_ASSIGNED("error.role_not_assigned"),
 
-    // Keycloak sync (see KeycloakAdminClient)
-    KEYCLOAK_ROLE_SYNC_FAILED("error.keycloak_role_sync_failed"),
-    KEYCLOAK_USER_SYNC_FAILED("error.keycloak_user_sync_failed");
+    // UC-01 Authentication (ME-06/ME-07/ME-08 in the SRS message catalogue)
+    INVALID_CREDENTIALS("error.invalid_credentials"),
+    ACCOUNT_LOCKED("error.account_locked"),
+    ACCOUNT_NOT_ACTIVATED("error.account_not_activated"),
+    INVALID_OR_EXPIRED_TOKEN("error.invalid_or_expired_token"),
+    TOO_MANY_REQUESTS("error.too_many_requests");
 
     private final String key;
 

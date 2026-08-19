@@ -8,16 +8,15 @@ import lombok.NoArgsConstructor;
 import java.util.Set;
 
 /**
- * Returned so the FE/Postman can inspect what info and roles the current
- * token carries - useful when debugging the Keycloak integration.
+ * Returned by {@code GET /api/me} so the FE can inspect what the backend
+ * resolved for the caller's identity/roles from their access token.
  */
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
 public class CurrentUserResponseDto {
-    private String keycloakId;
-    private String username;
+    private Long userId;
     private String email;
     private String fullName;
     private Set<String> roles;

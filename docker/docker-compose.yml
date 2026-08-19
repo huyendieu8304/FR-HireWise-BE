@@ -1,68 +1,12 @@
 ########################################################################
-#
-# Cách dùng:
-#   1. Chạy: docker compose --env-file .env up -d
-#   2. Mở http://localhost:8443 (hoặc KC_PORT bạn đặt) để vào Admin Console của Keycloak
+# Cach dung:
+#   docker compose --env-file .env up -d
+#   - Postgres:  localhost:5432 (db "hirewise-db")
+#   - MailHog UI: http://localhost:8025 (xem moi email UC-01/UC-02 gui ra
+#     ma khong can SMTP that - xem SMTP_HOST/SMTP_PORT trong .env.local)
 ########################################################################
 name: hirewise
 services:
-  keycloak:
-    image: quay.io/keycloak/keycloak:26.0
-    container_name: hirewise-keycloak
-    command: ["start-dev"]
-    environment:
-      # ---------------------------------------------------------------
-      # Bootstrap admin account.
-      # Chỉ có tác dụng ở LẦN ĐẦU TIÊN storage được khởi tạo (tức là lần
-      # đầu tiên schema "keycloak" trong Supabase còn trống). Sau đó tài
-      # khoản admin nằm trong DB rồi nên các máy sau không cần set lại.
-      # ---------------------------------------------------------------
-      KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_BOOTSTRAP_ADMIN_USERNAME:-admin}
-      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_BOOTSTRAP_ADMIN_PASSWORD:?set KC_BOOTSTRAP_ADMIN_PASSWORD in .env}
-
-      # ---------------------------------------------------------------
-      # Database: Supabase Postgres, schema riêng cho Keycloak.
-      #
-      # QUAN TRỌNG: phải dùng "Direct connection" hoặc "Session pooler"
-      # của Supabase (port 5432), KHÔNG dùng "Transaction pooler"
-      # (thường là port 6543). Keycloak cần prepared statements + advisory
-      # lock khi chạy migration/Liquibase lúc khởi động, mà transaction-mode
-      # pooler (PgBouncer/Supavisor transaction mode) không hỗ trợ việc này
-      # -> Keycloak sẽ lỗi hoặc treo lúc migrate schema.
-      # ---------------------------------------------------------------
-      KC_DB: postgres
-      KC_DB_URL_HOST: ${SUPABASE_DB_HOST:?set SUPABASE_DB_HOST in .env}
-      KC_DB_URL_PORT: ${SUPABASE_DB_PORT:-5432}
-      KC_DB_URL_DATABASE: ${SUPABASE_DB_NAME:-postgres}
-      KC_DB_URL_PROPERTIES: "?sslmode=require"
-      KC_DB_SCHEMA: ${KC_DB_SCHEMA:-keycloak}
-      KC_DB_USERNAME: ${SUPABASE_DB_USER:?set SUPABASE_DB_USER in .env}
-      KC_DB_PASSWORD: ${SUPABASE_DB_PASSWORD:?set SUPABASE_DB_PASSWORD in .env}
-
-      # ---------------------------------------------------------------
-      # Hostname / networking.
-      # Giữ NGUYÊN giá trị này giống nhau trên mọi máy (cùng KC_HOSTNAME,
-      # cùng KC_PORT) để token do Keycloak phát ra có cùng "iss" (issuer),
-      # nếu không backend sẽ từ chối token phát ra từ máy khác.
-      # ---------------------------------------------------------------
-      KC_HOSTNAME: ${KC_HOSTNAME:-localhost}
-      KC_HOSTNAME_PORT: ${KC_PORT:-8443}
-      KC_HTTP_ENABLED: "true"
-      KC_HOSTNAME_STRICT_HTTPS: "false"
-      KC_PROXY_HEADERS: "xforwarded"
-
-      # Bật health/metrics endpoint (tuỳ chọn, hữu ích khi debug)
-      KC_HEALTH_ENABLED: "true"
-      KC_METRICS_ENABLED: "true"
-    ports:
-      - "${KC_PORT:-8443}:8080"
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080 && echo -e 'GET /health/ready HTTP/1.1\\r\\nhost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q 'UP' <&3"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
   postgres:
     image: postgres:16
     container_name: hirewise-postgres
@@ -75,5 +19,22 @@ services:
       POSTGRES_PASSWORD: password
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Bat SMTP catcher local (khong gui email that ra ngoai) de test UC-01
+  # EX-02 (canh bao khoa tai khoan) va UC-02 EM-01 (link kich hoat) ma
+  # khong can cau hinh mot SMTP provider that.
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: hirewise-mailhog
+    restart: unless-stopped
+    ports:
+      - "1025:1025" # SMTP - tro app toi day (SMTP_HOST=localhost, SMTP_PORT=1025)
+      - "8025:8025" # Web UI de xem email da "gui"
+
 volumes:
   postgres_data:

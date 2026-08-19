@@ -7,7 +7,7 @@ import java.lang.annotation.Target;
 
 /**
  * Marks a controller parameter that should be resolved into a
- * {@link CurrentUser} from the current request's JWT. See
+ * {@link CurrentUser} from the current request's access token. See
  * {@link CurrentUserResolver}.
  */
 @Target(ElementType.PARAMETER)

@@ -19,8 +19,8 @@ public final class UserMapper {
      * Converts a {@link User} entity into its response DTO.
      * <p>
      * Role codes are not resolved here - the caller must already have looked them up
-     * (e.g. from Keycloak or the user-role association) and pass them in, to keep this
-     * mapper limited to plain entity-to-DTO conversion.
+     * (from {@code user_roles}) and pass them in, to keep this mapper limited to plain
+     * entity-to-DTO conversion.
      *
      * @param entity    user entity to convert
      * @param roleCodes role codes assigned to the user, resolved by the caller
@@ -30,13 +30,13 @@ public final class UserMapper {
     public static UserResponseDto toResponseDto(User entity, Set<String> roleCodes) {
         return UserResponseDto.builder()
                 .id(entity.getId())
-                .keycloakId(entity.getKeycloakId())
                 .email(entity.getEmail())
                 .fullName(entity.getFullName())
                 .departmentId(entity.getDepartment() != null ? entity.getDepartment().getId() : null)
                 .departmentName(entity.getDepartment() != null ? entity.getDepartment().getName() : null)
                 .status(entity.getStatus())
                 .roleCodes(roleCodes)
+                .lastAuthenticatedAt(entity.getLastAuthenticatedAt())
                 .createdAt(entity.getCreatedAt())
                 .updatedAt(entity.getUpdatedAt())
                 .build();

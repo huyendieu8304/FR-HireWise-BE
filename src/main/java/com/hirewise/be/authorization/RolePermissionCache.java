@@ -38,8 +38,6 @@ public class RolePermissionCache {
      * @param roleCode the role code to look up
      * @return map of permissionCode -> isWriteFlag granted to this role
      */
-    // TODO: current user roles may include extra Keycloak roles mixed in alongside
-    // the business roles here - needs to be double-checked.
     public Map<String, Boolean> permissionsOf(String roleCode) {
         return cache.get(roleCode, this::loadFromDb);
     }

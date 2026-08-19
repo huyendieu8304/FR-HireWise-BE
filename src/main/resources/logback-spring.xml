@@ -11,11 +11,11 @@
 
     <!-- ================= PROFILE: local =================
          Uu tien de doc tren console: co mau, canh dep, va van hien thi
-         correlationId/userId/role ngay tren dong log (khong can mo file
+         correlationId/userId ngay tren dong log (khong can mo file
          JSON) de dev debug nhanh khi code tren may ca nhan. -->
     <springProfile name="local">
         <property name="CONSOLE_LOG_PATTERN"
-                  value="%clr(%d{yyyy-MM-dd HH:mm:ss.SSS}){faint} %clr(%-5level) %clr([%15.15thread]){faint} %clr(%-40.40logger{39}){cyan} %clr([cid=%X{correlationId:-＿} uid=%X{userId:-＿} role=%X{userRoles:-＿}]){yellow} : %msg%n%wEx"/>
+                  value="%clr(%d{yyyy-MM-dd HH:mm:ss.SSS}){faint} %clr(%-5level) %clr([%15.15thread]){faint} %clr(%-40.40logger{39}){cyan} %clr([cid=%X{correlationId:-＿} uid=%X{userId:-＿}]){yellow} : %msg%n%wEx"/>
 
         <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
             <encoder>
@@ -37,8 +37,8 @@
          khoi vong doi cua he thong observability (app khong bao gio bi
          chan/loi vi Loki down).
          Moi dong JSON co san: level, logger, message, cac MDC field
-         (correlationId, userId, userRoles, traceId, spanId - traceId/
-         spanId duoc Spring Boot tu dong bom vao MDC khi co
+         (correlationId, userId, traceId, spanId - traceId/spanId duoc
+         Spring Boot tu dong bom vao MDC khi co
          spring-boot-starter-opentelemetry tren classpath), va tag
          service/environment de loc/query trong Grafana. -->
     <springProfile name="dev,prod">
@@ -46,7 +46,6 @@
             <encoder class="net.logstash.logback.encoder.LogstashEncoder">
                 <includeMdcKeyName>correlationId</includeMdcKeyName>
                 <includeMdcKeyName>userId</includeMdcKeyName>
-                <includeMdcKeyName>userRoles</includeMdcKeyName>
                 <includeMdcKeyName>traceId</includeMdcKeyName>
                 <includeMdcKeyName>spanId</includeMdcKeyName>
                 <customFields>{"service":"${appName}","environment":"${appEnv}"}</customFields>

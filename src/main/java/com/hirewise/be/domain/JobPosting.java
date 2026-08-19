@@ -9,11 +9,7 @@ import lombok.NoArgsConstructor;
 import java.time.Instant;
 
 /**
- * Represents a job posting created by a recruiter. Used as the sample
- * entity demonstrating the full stack: controller (RBAC via Keycloak
- * roles) -> service -> repository -> Postgres (Supabase), with schema
- * managed by Flyway (see
- * src/main/resources/db/migration/__create_job_postings_table.sql).
+ * Represents a job posting created by a recruiter.
  */
 @Entity
 @Table(name = "job_postings")
@@ -41,9 +37,9 @@ public class JobPosting {
     @Column(nullable = false, length = 20)
     private JobStatus status;
 
-    /** Subject (the "sub" claim - Keycloak user id) of whoever created this job posting. */
-    @Column(name = "created_by", nullable = false, length = 255)
-    private String createdBy;
+    //todo maybe change to UUID
+    @Column(name = "created_by_user_id")
+    private Long createdByUserId;
 
     /**
      * Recruiter assigned as owner of this job posting - the owner field for

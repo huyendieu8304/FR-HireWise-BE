@@ -21,8 +21,6 @@ public interface UserRoleRepository extends JpaRepository<UserRole, Long> {
      * @param now    point in time to evaluate role validity against
      * @return codes of the roles valid at {@code now}
      */
-    // Filters on validFrom/validTo so only roles currently within their
-    // validity window are returned; validTo of null means no expiry.
     @Query("""
             SELECT ur.role.code FROM UserRole ur
             WHERE ur.user.id = :userId

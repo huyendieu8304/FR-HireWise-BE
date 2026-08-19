@@ -25,8 +25,6 @@ public interface UserAccessScopeRepository extends JpaRepository<UserAccessScope
      * @param now    point in time to evaluate scope validity against
      * @return scopes valid at {@code now}
      */
-    // Filters on validFrom/validTo so only scopes currently within their
-    // validity window are returned; validTo of null means no expiry.
     @Query("""
             SELECT s FROM UserAccessScope s
             WHERE s.user.id = :userId

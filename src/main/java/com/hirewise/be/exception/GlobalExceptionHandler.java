@@ -60,8 +60,8 @@ public class GlobalExceptionHandler {
         }
 
         // WARN, not ERROR: this is an expected business exception
-        // (404/409/403...) - the app is working as intended. userId/userRoles
-        // are already available in the MDC (UserContextMdcFilter), so there's
+        // (404/409/403...) - the app is working as intended. userId is
+        // already available in the MDC (UserContextMdcFilter), so there's
         // no need to log them again here. The concrete exception class name
         // (e.g. PermissionDeniedException, OutOfScopeException...) is only
         // used for internal RBAC audit; the client always sees the same

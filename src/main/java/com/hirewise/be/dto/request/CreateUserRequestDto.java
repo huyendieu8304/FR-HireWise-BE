@@ -10,13 +10,11 @@ import lombok.NoArgsConstructor;
 /**
  * Request body for USER_CREATE (HR_ADMIN only).
  * <p>
- * Unlike the previous version, this no longer accepts a keycloakId from the
- * client - {@code UserAdminService#create} calls
- * {@code KeycloakAdminClient#createUser} itself to actually create the
- * Keycloak account (username/email = this email) and retrieve the
- * keycloakId, per UC-02 (the HR Admin only enters the info; the system
- * creates the account and sends the activation email EM-01). It no longer
- * assumes a Keycloak account already exists beforehand.
+ * No password is supplied here - {@code UserAdminService#create} creates
+ * the account in status {@code INVITED} with no usable password yet, and
+ * enqueues the EM-01 activation email (see {@code event.OutboxEvent}) carrying a
+ * one-time link the new hire uses to set their own password, per UC-02
+ * normal flow.
  */
 @Data
 @NoArgsConstructor

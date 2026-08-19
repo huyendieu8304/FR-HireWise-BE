@@ -18,13 +18,13 @@ import java.util.Set;
 @Builder
 public class UserResponseDto {
     private Long id;
-    private String keycloakId;
     private String email;
     private String fullName;
     private Long departmentId;
     private String departmentName;
     private UserStatus status;
     private Set<String> roleCodes;
+    private Instant lastAuthenticatedAt;
     private Instant createdAt;
     private Instant updatedAt;
 }

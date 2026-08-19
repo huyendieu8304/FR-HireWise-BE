@@ -9,9 +9,10 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.HandlerExceptionResolver;
 
 /**
- * Handles requests with no JWT, or an invalid/expired one - delegates to
- * {@code GlobalExceptionHandler} to return a consistent JSON 401 body
- * instead of Spring Security OAuth2 Resource Server's default response.
+ * Handles requests with no access token, or an invalid/expired one -
+ * delegates to {@code GlobalExceptionHandler} to return a consistent JSON
+ * 401 body instead of Spring Security OAuth2 Resource Server's default
+ * response.
  */
 @Component
 public class CustomAuthenticationEntryPoint implements AuthenticationEntryPoint {
