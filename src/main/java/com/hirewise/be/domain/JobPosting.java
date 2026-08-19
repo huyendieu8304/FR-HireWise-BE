@@ -7,6 +7,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.Instant;
+import java.util.UUID;
 
 /**
  * Represents a job posting created by a recruiter.
@@ -20,8 +21,7 @@ import java.time.Instant;
 public class JobPosting {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+    private UUID id;
 
     @Column(nullable = false, length = 255)
     private String title;

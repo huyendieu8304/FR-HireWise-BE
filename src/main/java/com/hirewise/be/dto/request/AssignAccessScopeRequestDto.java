@@ -7,6 +7,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.Instant;
+import java.util.UUID;
 
 /**
  * Request body for ROLE_ASSIGN (HR_ADMIN only) - assigns an access scope
@@ -26,7 +27,7 @@ public class AssignAccessScopeRequestDto {
     private Long departmentId;
 
     /** Required when scopeType is JOB. */
-    private Long jobId;
+    private UUID jobId;
 
     /** BR-RBAC-06: only meaningful when scopeType is DEPARTMENT. Defaults
      * to true (inherits access to sub-departments) if not supplied. */

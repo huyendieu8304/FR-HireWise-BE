@@ -7,6 +7,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.Instant;
+import java.util.UUID;
 
 /**
  * RBAC layer 3 (Access Scope). A user can have MULTIPLE rows with
@@ -46,7 +47,7 @@ public class UserAccessScope {
      * between the two entities just for this one scope field.
      */
     @Column(name = "job_id")
-    private Long jobId;
+    private UUID jobId;
 
     @Column(name = "include_sub_departments", nullable = false)
     private boolean includeSubDepartments;

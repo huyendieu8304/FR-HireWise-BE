@@ -33,6 +33,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * UC-03: lets an HR Admin assign roles and access scopes to accounts - permission {@code ROLE_ASSIGN}, HR_ADMIN only.
@@ -145,7 +146,7 @@ public class RoleAssignmentService {
         User user = findUserOrThrow(userId);
 
         Department department = null;
-        Long jobId = null;
+        UUID jobId = null;
         if (request.getScopeType() == ScopeType.DEPARTMENT) {
             // A department-scoped grant must point at a real department.
             if (request.getDepartmentId() == null) {

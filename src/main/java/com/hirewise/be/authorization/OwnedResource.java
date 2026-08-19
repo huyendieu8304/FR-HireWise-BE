@@ -1,5 +1,7 @@
 package com.hirewise.be.authorization;
 
+import java.util.UUID;
+
 /**
  * Record holding the minimal set of resource data needed after it has been
  * loaded from the DB.
@@ -12,7 +14,7 @@ package com.hirewise.be.authorization;
  * @param departmentId id of the department that manages this resource (used for Layer 3)
  * @param jobId        id of the job related to this resource (used for Layer 3)
  */
-public record OwnedResource(Long ownerId, Long departmentId, Long jobId) {
+public record OwnedResource(Long ownerId, Long departmentId, UUID jobId) {
 
     /**
      * Converts this resource's scope data into a {@link ResourceContext} to

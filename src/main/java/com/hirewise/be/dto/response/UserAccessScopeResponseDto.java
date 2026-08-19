@@ -7,6 +7,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.Instant;
+import java.util.UUID;
 
 /**
  * Response body representing a user's access scope (RBAC layer 3).
@@ -20,7 +21,7 @@ public class UserAccessScopeResponseDto {
     private ScopeType scopeType;
     private Long departmentId;
     private String departmentName;
-    private Long jobId;
+    private UUID jobId;
     private boolean includeSubDepartments;
     private boolean canWrite;
     private Instant validFrom;
