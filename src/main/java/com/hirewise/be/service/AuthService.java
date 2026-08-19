@@ -4,8 +4,9 @@ import com.hirewise.be.security.token.ActivationToken;
 import com.hirewise.be.security.token.ActivationTokenPurpose;
 import com.hirewise.be.domain.AuthIdentity;
 import com.hirewise.be.domain.AuthProvider;
-import com.hirewise.be.event.OutboxEventType;
 import com.hirewise.be.event.OutboxEventPublisher;
+import com.hirewise.be.event.OutboxEventType;
+import com.hirewise.be.event.OutboxPayloads;
 import com.hirewise.be.domain.User;
 import com.hirewise.be.domain.UserSession;
 import com.hirewise.be.domain.UserStatus;
@@ -44,7 +45,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -319,10 +319,8 @@ public class AuthService {
         if (attempts >= lockoutMaxAttempts) {
             identity.setLockedUntil(now.plus(Duration.ofMinutes(lockoutDurationMinutes)));
             User user = identity.getUser();
-            outboxEventPublisher.publish(OutboxEventType.SECURITY_ALERT_EMAIL, Map.of(
-                    "email", user.getEmail(),
-                    "fullName", user.getFullName() == null ? "" : user.getFullName(),
-                    "ipAddress", ipAddress == null ? "" : ipAddress));
+            outboxEventPublisher.publish(OutboxEventType.SECURITY_ALERT_EMAIL,
+                    OutboxPayloads.securityAlertEmail(user.getEmail(), user.getFullName(), ipAddress));
             log.warn("Account locked for {} minutes after {} failed attempts, email={}",
                     lockoutDurationMinutes, attempts, LogMaskUtils.maskEmail(identity.getProviderSubject()));
         }

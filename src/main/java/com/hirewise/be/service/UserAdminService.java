@@ -6,8 +6,9 @@ import com.hirewise.be.authorization.ResourceContext;
 import com.hirewise.be.security.token.ActivationToken;
 import com.hirewise.be.security.token.ActivationTokenPurpose;
 import com.hirewise.be.domain.Department;
-import com.hirewise.be.event.OutboxEventType;
 import com.hirewise.be.event.OutboxEventPublisher;
+import com.hirewise.be.event.OutboxEventType;
+import com.hirewise.be.event.OutboxPayloads;
 import com.hirewise.be.domain.User;
 import com.hirewise.be.domain.UserSession;
 import com.hirewise.be.domain.UserStatus;
@@ -44,7 +45,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -149,10 +149,8 @@ public class UserAdminService {
 
         String rawToken = issueActivationToken(user, now);
         String activationLink = activationLinkBaseUrl + "?token=" + rawToken;
-        outboxEventPublisher.publish(OutboxEventType.ACTIVATION_EMAIL, Map.of(
-                "email", user.getEmail(),
-                "fullName", user.getFullName() == null ? "" : user.getFullName(),
-                "activationLink", activationLink));
+        outboxEventPublisher.publish(OutboxEventType.ACTIVATION_EMAIL,
+                OutboxPayloads.activationEmail(user.getEmail(), user.getFullName(), activationLink));
 
         log.info("Created internal user: {} (email={}, status=INVITED)",
                 user.getId(), LogMaskUtils.maskEmail(user.getEmail()));
