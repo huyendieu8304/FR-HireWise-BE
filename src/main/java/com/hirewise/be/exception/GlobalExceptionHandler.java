@@ -37,7 +37,7 @@ import java.util.Map;
  * Lombok's {@code @Slf4j} instead of a manually declared Logger) - per
  * project convention, service/use-case code does NOT log again when
  * throwing a business exception; this advice logs it once, here (see
- * {@code LOGGING_CONVENTION.md}).
+ * {@code 06-LOGGING_CONVENTION.md}).
  */
 @Slf4j
 @RestControllerAdvice

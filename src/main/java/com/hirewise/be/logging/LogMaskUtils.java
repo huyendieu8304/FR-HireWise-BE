@@ -9,7 +9,7 @@ package com.hirewise.be.logging;
  * <p>
  * Do NOT use this for: passwords, tokens, OTP codes, card numbers/CVV, national ID
  * numbers (CCCD/CMND)... those values must NEVER be logged, masked or not - see the
- * "Do not log sensitive data" section of LOGGING_CONVENTION.md.
+ * "Do not log sensitive data" section of 06-LOGGING_CONVENTION.md.
  * <p>
  * Example:
  * <pre>{@code
