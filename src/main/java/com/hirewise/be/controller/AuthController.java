@@ -50,6 +50,7 @@ public class AuthController {
 
     /** Google SSO login - frontend supplies the ID token obtained from Google Identity Services. */
     @PostMapping("/google")
+    //todo chua hieu sao body lai map sang
     public ResponseEntity<LoginResponseDto> loginWithGoogle(@RequestBody Map<String, String> body, HttpServletRequest httpRequest) {
         String ip = clientIp(httpRequest);
         if (!loginRateLimiter.tryAcquire(ip)) {
