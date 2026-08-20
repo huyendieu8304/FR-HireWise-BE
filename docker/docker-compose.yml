@@ -1,6 +1,6 @@
 ########################################################################
 # Cach dung:
-#   docker compose --env-file .env up -d
+#   docker compose up -d
 #   - Postgres:  localhost:5432 (db "hirewise-db")
 #   - MailHog UI: http://localhost:8025 (xem moi email UC-01/UC-02 gui ra
 #     ma khong can SMTP that - xem SMTP_HOST/SMTP_PORT trong .env.local)
