@@ -1,0 +1,40 @@
+########################################################################
+# Cach dung:
+#   docker compose up -d
+#   - Postgres:  localhost:5432 (db "hirewise-db")
+#   - MailHog UI: http://localhost:8025 (xem moi email UC-01/UC-02 gui ra
+#     ma khong can SMTP that - xem SMTP_HOST/SMTP_PORT trong .env.local)
+########################################################################
+name: hirewise
+services:
+  postgres:
+    image: postgres:16
+    container_name: hirewise-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: hirewise-db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Bat SMTP catcher local (khong gui email that ra ngoai) de test UC-01
+  # EX-02 (canh bao khoa tai khoan) va UC-02 EM-01 (link kich hoat) ma
+  # khong can cau hinh mot SMTP provider that.
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: hirewise-mailhog
+    restart: unless-stopped
+    ports:
+      - "1025:1025" # SMTP - tro app toi day (SMTP_HOST=localhost, SMTP_PORT=1025)
+      - "8025:8025" # Web UI de xem email da "gui"
+
+volumes:
+  postgres_data:
