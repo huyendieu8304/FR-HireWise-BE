@@ -10,15 +10,15 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * Represents a job posting created by a recruiter.
+ * Represents a job position created by a recruiter.
  */
 @Entity
-@Table(name = "job_postings")
+@Table(name = "job_positions")
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class JobPosting {
+public class JobPosition {
 
     @Id
     private UUID id;
@@ -37,14 +37,13 @@ public class JobPosting {
     @Column(nullable = false, length = 20)
     private JobStatus status;
 
-    //todo maybe change to UUID
     @Column(name = "created_by_user_id")
     private Long createdByUserId;
 
     /**
-     * Recruiter assigned as owner of this job posting - the owner field for
+     * Recruiter assigned as owner of this job position - the owner field for
      * RBAC layer 4 (Ownership): only this recruiter can edit the job
-     * posting via JOB_EDIT, see {@code JobPostingOwnershipResolver}.
+     * position via JOB_EDIT, see {@code JobPositionOwnershipResolver}.
      */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "recruiter_id")
