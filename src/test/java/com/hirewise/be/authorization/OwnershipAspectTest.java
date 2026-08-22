@@ -38,7 +38,7 @@ class OwnershipAspectTest {
     @Mock
     private AccessControlService accessControlService;
     @Mock
-    private OwnershipResolver jobPostingResolver;
+    private OwnershipResolver jobPositionResolver;
     @Mock
     private ProceedingJoinPoint joinPoint;
     @Mock
@@ -90,8 +90,8 @@ class OwnershipAspectTest {
     void ownerMatches_proceeds() throws Throwable {
         CurrentUser recruiter = userWithRoles(5L, Set.of("RECRUITER"));
         when(joinPoint.getArgs()).thenReturn(new Object[]{JOB_ID, recruiter});
-        when(resolverRegistry.get("JOB_POSITION")).thenReturn(jobPostingResolver);
-        when(jobPostingResolver.resolve(JOB_ID)).thenReturn(new OwnedResource(5L, 10L, JOB_ID));
+        when(resolverRegistry.get("JOB_POSITION")).thenReturn(jobPositionResolver);
+        when(jobPositionResolver.resolve(JOB_ID)).thenReturn(new OwnedResource(5L, 10L, JOB_ID));
         when(rolePermissionCache.grants("RECRUITER", PermissionCodes.JOB_EDIT)).thenReturn(true);
         when(policyRegistry.requiresOwnership(eq(PermissionCodes.JOB_EDIT), any())).thenReturn(true);
         when(joinPoint.proceed()).thenReturn(null);
@@ -106,9 +106,9 @@ class OwnershipAspectTest {
     void ownerMismatch_throwsNotResourceOwner() throws Throwable {
         CurrentUser recruiter = userWithRoles(5L, Set.of("RECRUITER"));
         when(joinPoint.getArgs()).thenReturn(new Object[]{JOB_ID, recruiter});
-        when(resolverRegistry.get("JOB_POSITION")).thenReturn(jobPostingResolver);
+        when(resolverRegistry.get("JOB_POSITION")).thenReturn(jobPositionResolver);
         // Job duoc phu trach boi recruiter khac (userId=99), khong phai nguoi goi (5).
-        when(jobPostingResolver.resolve(JOB_ID)).thenReturn(new OwnedResource(99L, 10L, JOB_ID));
+        when(jobPositionResolver.resolve(JOB_ID)).thenReturn(new OwnedResource(99L, 10L, JOB_ID));
         when(rolePermissionCache.grants("RECRUITER", PermissionCodes.JOB_EDIT)).thenReturn(true);
         when(policyRegistry.requiresOwnership(eq(PermissionCodes.JOB_EDIT), any())).thenReturn(true);
 
@@ -124,8 +124,8 @@ class OwnershipAspectTest {
         // (RBAC Design muc 4.3) - du "owner" khac nguoi goi, van duoc phep.
         CurrentUser hiringManager = userWithRoles(7L, Set.of("HIRING_MANAGER"));
         when(joinPoint.getArgs()).thenReturn(new Object[]{JOB_ID, hiringManager});
-        when(resolverRegistry.get("JOB_POSITION")).thenReturn(jobPostingResolver);
-        when(jobPostingResolver.resolve(JOB_ID)).thenReturn(new OwnedResource(99L, 10L, JOB_ID));
+        when(resolverRegistry.get("JOB_POSITION")).thenReturn(jobPositionResolver);
+        when(jobPositionResolver.resolve(JOB_ID)).thenReturn(new OwnedResource(99L, 10L, JOB_ID));
         when(rolePermissionCache.grants("HIRING_MANAGER", PermissionCodes.JOB_EDIT)).thenReturn(true);
         when(policyRegistry.requiresOwnership(eq(PermissionCodes.JOB_EDIT), any())).thenReturn(false);
         when(joinPoint.proceed()).thenReturn(null);

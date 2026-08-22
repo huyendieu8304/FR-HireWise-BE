@@ -15,9 +15,9 @@ public enum ErrorCode {
     FORBIDDEN("error.forbidden"),
     INTERNAL_SERVER_ERROR("error.internal_server_error"),
 
-    // Job posting sample domain
-    JOB_POSTING_NOT_FOUND("error.job_posting_not_found"),
-    JOB_POSTING_ALREADY_CLOSED("error.job_posting_already_closed"),
+    // Job position sample domain
+    JOB_POSITION_NOT_FOUND("error.job_position_not_found"),
+    JOB_POSITION_ALREADY_CLOSED("error.job_position_already_closed"),
 
     // RBAC / user administration
     USER_NOT_FOUND("error.user_not_found"),

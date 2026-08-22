@@ -45,7 +45,7 @@ public class AuthIdentity {
     @Column(name = "provider_subject", nullable = false, length = 255)
     private String providerSubject;
 
-    /** Argon2id hash - only set for {@code provider=LOCAL}. */
+    /**  hash - only set for {@code provider=LOCAL}. */
     @Column(name = "password_hash", length = 255)
     private String passwordHash;
 
