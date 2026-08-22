@@ -17,6 +17,10 @@ services:
       POSTGRES_DB: hirewise-db
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: password
+      # Explicit rather than relying on the image's unstated default -
+      # the app (pom.xml spring-boot-maven-plugin, application.properties)
+      # is configured to match this exactly.
+      TZ: Etc/UTC
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
