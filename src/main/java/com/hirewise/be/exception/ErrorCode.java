@@ -32,7 +32,11 @@ public enum ErrorCode {
     ACCOUNT_LOCKED("error.account_locked"),
     ACCOUNT_NOT_ACTIVATED("error.account_not_activated"),
     INVALID_OR_EXPIRED_TOKEN("error.invalid_or_expired_token"),
-    TOO_MANY_REQUESTS("error.too_many_requests");
+    TOO_MANY_REQUESTS("error.too_many_requests"),
+
+    // UC-07/UC-08 Cloud Storage integration
+    INTEGRATION_PROVIDER_UNSUPPORTED("error.integration_provider_unsupported"),
+    INTEGRATION_NOT_CONNECTED("error.integration_not_connected");
 
     private final String key;
 
