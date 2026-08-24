@@ -3,15 +3,17 @@ package com.hirewise.be.integration;
 import com.hirewise.be.domain.IntegrationProvider;
 
 /**
- * Provider-specific side of UC-07/UC-08: builds the OAuth 2.0 authorization
- * URL, exchanges an authorization code for tokens, and creates the root
- * folder BR-STORAGE-03 requires on first connect. One implementation per
+ * Provider-specific side builds the OAuth 2.0 authorization
+ * URL, exchanges an authorization code for tokens, refreshes an access
+ * token using a stored refresh token, and creates the root folder
+ * BR-STORAGE-03 requires on first connect. One implementation per
  * {@link IntegrationProvider} ({@link GoogleDriveProviderClient},
  * {@link DropboxProviderClient}); {@code CloudStorageIntegrationService}
  * picks the right one by provider at runtime. Each implementation holds its
  * own {@code redirect_uri} (from configuration) and reuses it for both
- * methods below, since the two must be byte-identical per the OAuth 2.0
- * spec - there is no reason for callers to pass it in separately.
+ * {@link #buildAuthorizationUrl} and {@link #exchangeAuthorizationCode},
+ * since the two must be byte-identical per the OAuth 2.0 spec - there is no
+ * reason for callers to pass it in separately.
  */
 public interface CloudStorageProviderClient {
 
@@ -37,6 +39,27 @@ public interface CloudStorageProviderClient {
      * @throws IntegrationConnectException if the provider rejects the code or the call fails
      */
     OAuthTokenResponse exchangeAuthorizationCode(String code);
+
+    /**
+     * Exchanges a previously stored refresh token for a fresh access token,
+     * without any user interaction - the whole point of storing a refresh
+     * token in the first place (BR-STORAGE-01/ERD 05 "worker refresh token
+     * trước khi hết hạn"). Used by {@code service.CloudStorageTokenRefreshWorker}
+     * to keep a connection {@code CONNECTED} across access-token expiry
+     * instead of requiring a manual Reconnect (UC-08 AF-01) every time.
+     * <p>
+     * Most providers (including both implemented here) do not reissue a new
+     * refresh token on every refresh call - callers must keep using the
+     * same refresh token unless the response explicitly includes a new one.
+     *
+     * @param refreshToken a previously stored, still-valid refresh token
+     * @return the refreshed tokens ({@link OAuthTokenResponse#refreshToken()}
+     *         is {@code null} when the provider did not reissue one - callers
+     *         must keep using the refresh token passed in)
+     * @throws IntegrationConnectException if the provider rejects the refresh
+     *                                      token (revoked/expired) or the call fails
+     */
+    OAuthTokenResponse refreshAccessToken(String refreshToken);
 
     /**
      * Best-effort creation of the root folder (BR-STORAGE-03) HireWise

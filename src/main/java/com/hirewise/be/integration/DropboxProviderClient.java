@@ -84,6 +84,35 @@ public class DropboxProviderClient implements CloudStorageProviderClient {
     }
 
     @Override
+    public OAuthTokenResponse refreshAccessToken(String refreshToken) {
+        requireConfigured();
+        // Dropbox's refresh_token grant: same token endpoint as the authorization_code
+        // exchange above, no redirect_uri involved this time. Dropbox does not
+        // reissue a new refresh_token here - callers must keep reusing the one
+        // passed in.
+        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
+        form.add("refresh_token", refreshToken);
+        form.add("client_id", clientId);
+        form.add("client_secret", clientSecret);
+        form.add("grant_type", "refresh_token");
+
+        try {
+            return tokenClient.post()
+                    .uri(TOKEN_ENDPOINT)
+                    .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                    .body(form)
+                    .retrieve()
+                    .body(OAuthTokenResponse.class);
+        } catch (RestClientException e) {
+            // Most commonly a revoked/expired refresh_token (e.g. HR Admin revoked
+            // HireWise's access from their Dropbox account settings) - the caller
+            // (CloudStorageTokenRefreshWorker) falls back to marking the connection
+            // EXPIRED so UC-08's normal Reconnect flow can recover it.
+            throw new IntegrationConnectException("Dropbox token refresh failed", e);
+        }
+    }
+
+    @Override
     public String createRootFolder(String accessToken) {
         try {
             Map<String, Object> body = Map.of("path", ROOT_FOLDER_PATH);

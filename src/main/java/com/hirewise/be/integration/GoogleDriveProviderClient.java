@@ -91,6 +91,35 @@ public class GoogleDriveProviderClient implements CloudStorageProviderClient {
     }
 
     @Override
+    public OAuthTokenResponse refreshAccessToken(String refreshToken) {
+        requireConfigured();
+        // Google's refresh_token grant: same token endpoint as the authorization_code
+        // exchange above, no redirect_uri involved this time. Google normally does
+        // NOT return a new refresh_token here - callers must keep reusing the one
+        // passed in unless the response explicitly contains a fresh one.
+        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
+        form.add("refresh_token", refreshToken);
+        form.add("client_id", clientId);
+        form.add("client_secret", clientSecret);
+        form.add("grant_type", "refresh_token");
+
+        try {
+            return tokenClient.post()
+                    .uri(TOKEN_ENDPOINT)
+                    .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                    .body(form)
+                    .retrieve()
+                    .body(OAuthTokenResponse.class);
+        } catch (RestClientException e) {
+            // Most commonly a revoked/expired refresh_token (e.g. HR Admin revoked
+            // HireWise's access from their Google Account settings) - the caller
+            // (CloudStorageTokenRefreshWorker) falls back to marking the connection
+            // EXPIRED so UC-08's normal Reconnect flow can recover it.
+            throw new IntegrationConnectException("Google Drive token refresh failed", e);
+        }
+    }
+
+    @Override
     public String createRootFolder(String accessToken) {
         try {
             Map<String, Object> body = Map.of(
