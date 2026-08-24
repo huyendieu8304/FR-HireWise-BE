@@ -26,6 +26,7 @@ import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.servlet.HandlerExceptionResolver;
 
 import javax.crypto.spec.SecretKeySpec;
@@ -128,17 +129,28 @@ public class SecurityConfig {
      * @throws Exception if the underlying {@link HttpSecurity} builder fails to build
      */
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http, JwtDecoder jwtDecoder) throws Exception {
+    public SecurityFilterChain securityFilterChain(
+            HttpSecurity http, JwtDecoder jwtDecoder, CorsConfigurationSource corsConfigurationSource
+    ) throws Exception {
         http
             // Authentication is stateless (access token in the Authorization header, no
             // server session cookie), so there is no session-cookie-based CSRF risk to protect against.
             .csrf(AbstractHttpConfigurer::disable)
+            // Must run before authorizeHttpRequests so the browser's preflight
+            // OPTIONS request (no Authorization header yet) isn't rejected as
+            // unauthenticated - see CorsConfig.
+            .cors(cors -> cors.configurationSource(corsConfigurationSource))
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .exceptionHandling(exceptions -> exceptions
                     .authenticationEntryPoint(authenticationEntryPoint) // 401 - not authenticated: missing/invalid token
                     .accessDeniedHandler(accessDeniedHandler)           // 403 - authenticated but lacking the required permission
             )
             .authorizeHttpRequests(auth -> auth
+                    // The browser's CORS preflight carries no Authorization header by
+                    // design - it must be let through regardless of the target path, or
+                    // every cross-origin request from the frontend fails before the
+                    // actual request is even sent.
+                    .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                     // Public endpoints: healthcheck, login/refresh/activation/Google SSO and demo endpoints that don't require login.
                     .requestMatchers("/actuator/health/**").permitAll()
                     .requestMatchers(HttpMethod.GET, "/api/public/**").permitAll()
