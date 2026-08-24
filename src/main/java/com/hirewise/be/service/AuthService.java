@@ -2,6 +2,7 @@ package com.hirewise.be.service;
 
 import com.hirewise.be.security.token.ActivationToken;
 import com.hirewise.be.security.token.ActivationTokenPurpose;
+import com.hirewise.be.authorization.RolePermissionCache;
 import com.hirewise.be.domain.AuthIdentity;
 import com.hirewise.be.domain.AuthProvider;
 import com.hirewise.be.event.OutboxEventPublisher;
@@ -48,6 +49,7 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * Owns the whole local-auth lifecycle
@@ -68,6 +70,7 @@ public class AuthService {
     UserDirectoryService userDirectoryService;
     SessionRegistryService sessionRegistryService;
     ActiveRolesService activeRolesService;
+    RolePermissionCache rolePermissionCache;
     Clock clock;
 
     int lockoutMaxAttempts;
@@ -86,6 +89,7 @@ public class AuthService {
                         UserDirectoryService userDirectoryService,
                         SessionRegistryService sessionRegistryService,
                         ActiveRolesService activeRolesService,
+                        RolePermissionCache rolePermissionCache,
                         Clock clock,
                         @Value("${app.auth.lockout-max-attempts:5}") int lockoutMaxAttempts,
                         @Value("${app.auth.lockout-window-minutes:15}") long lockoutWindowMinutes,
@@ -102,6 +106,7 @@ public class AuthService {
         this.userDirectoryService = userDirectoryService;
         this.sessionRegistryService = sessionRegistryService;
         this.activeRolesService = activeRolesService;
+        this.rolePermissionCache = rolePermissionCache;
         this.clock = clock;
         this.lockoutMaxAttempts = lockoutMaxAttempts;
         this.lockoutWindowMinutes = lockoutWindowMinutes;
@@ -346,11 +351,16 @@ public class AuthService {
         String refreshToken = OpaqueTokenUtil.encode(sessionId, refreshSecret);
 
         Set<String> roles = activeRolesService.rolesOf(user.getId());
+        //get permission of current user role(s) - same as role_permissions that AccessControlService use
+        Set<String> permissions = roles.stream()
+                .flatMap(role -> rolePermissionCache.permissionsOf(role).keySet().stream())
+                .collect(Collectors.toSet());
         CurrentUserResponseDto profile = CurrentUserResponseDto.builder()
                 .userId(user.getId())
                 .email(user.getEmail())
                 .fullName(user.getFullName())
                 .roles(roles)
+                .permissions(permissions)
                 .build();
 
         log.info("Login succeeded for user {}", user.getId());
