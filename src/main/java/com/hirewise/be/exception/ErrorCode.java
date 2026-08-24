@@ -36,7 +36,12 @@ public enum ErrorCode {
 
     // UC-07/UC-08 Cloud Storage integration
     INTEGRATION_PROVIDER_UNSUPPORTED("error.integration_provider_unsupported"),
-    INTEGRATION_NOT_CONNECTED("error.integration_not_connected");
+    INTEGRATION_NOT_CONNECTED("error.integration_not_connected"),
+
+    // UC-09 Email Template management (BR-EMAILTPL-01/03/ME-15)
+    EMAIL_TEMPLATE_NOT_FOUND("error.email_template_not_found"),
+    EMAIL_TEMPLATE_CODE_DUPLICATE("error.email_template_code_duplicate"),
+    EMAIL_TEMPLATE_STAGE_CONFLICT("error.email_template_stage_conflict");
 
     private final String key;
 
