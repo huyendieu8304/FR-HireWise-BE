@@ -11,7 +11,7 @@ import com.hirewise.be.exception.ErrorCode;
  */
 public enum IntegrationProvider {
     GOOGLE_DRIVE,
-    DROPBOX
+    DROPBOX;
 
     /**
      * Parses the kebab-case path segment used in
