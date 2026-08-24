@@ -86,6 +86,19 @@ public class EmailTemplateController {
         return ResponseEntity.created(location).body(response);
     }
 
+    /**
+     * Updates an existing email template (UC-09 AF-01). Requires EMAIL_TEMPLATE_MANAGE.
+     * Version is auto-incremented when content changes (BR-EMAILTPL-04).
+     */
+    @PutMapping("/{id}")
+    public ResponseEntity<EmailTemplateResponseDto> update(
+            @PathVariable Long id,
+            @Valid @RequestBody UpdateEmailTemplateRequestDto request,
+            @CurrentUserPrincipal CurrentUser currentUser
+    ) {
+        return ResponseEntity.ok(emailTemplateService.update(id, request, currentUser));
+    }
+
 
 
     /**

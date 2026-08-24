@@ -99,6 +99,42 @@ public class EmailTemplateService {
         return EmailTemplateMapper.toResponseDto(template);
     }
 
+    /**
+     * Updates an existing email template (UC-09 AF-01).
+     * Version incremented when subjectTemplate or bodyTemplate changes (BR-EMAILTPL-04).
+     */
+    @Transactional
+    public EmailTemplateResponseDto update(Long id, UpdateEmailTemplateRequestDto request, CurrentUser currentUser) {
+        accessControlService.checkAccess(currentUser, PermissionCodes.EMAIL_TEMPLATE_MANAGE, ResourceContext.none());
+
+        EmailTemplate template = findOrThrow(id);
+
+        if (emailTemplateRepository.existsByCodeAndIdNot(request.getCode(), id)) {
+            throw new BusinessConflictException(ErrorCode.EMAIL_TEMPLATE_CODE_DUPLICATE, request.getCode());
+        }
+
+        boolean contentChanged =
+                !Objects.equals(template.getSubjectTemplate(), request.getSubjectTemplate())
+                || !Objects.equals(template.getBodyTemplate(), request.getBodyTemplate());
+
+        PipelineStage stage = resolveStageOrNull(request.getPipelineStageId());
+        Instant now = Instant.now(clock);
+
+        template.setName(request.getName());
+        template.setCode(request.getCode());
+        template.setPipelineStage(stage);
+        template.setSubjectTemplate(request.getSubjectTemplate());
+        template.setBodyTemplate(request.getBodyTemplate());
+        template.setUpdatedAt(now);
+        if (contentChanged) {
+            template.setVersion(template.getVersion() + 1);
+        }
+
+        emailTemplateRepository.save(template);
+        log.info("Updated email template: id={}, code={}, version={}", template.getId(), template.getCode(), template.getVersion());
+        return EmailTemplateMapper.toResponseDto(template);
+    }
+
 
 
     /**
