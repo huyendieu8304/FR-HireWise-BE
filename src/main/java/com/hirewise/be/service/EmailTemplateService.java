@@ -138,6 +138,26 @@ public class EmailTemplateService {
 
 
     /**
+     * Soft-deletes (deactivates) an email template (UC-09 AF-02).
+     * BR-EMAILTPL-03/EX-01: blocked when linked to an active pipeline stage (ME-15).
+     */
+    @Transactional
+    public void delete(Long id, CurrentUser currentUser) {
+        accessControlService.checkAccess(currentUser, PermissionCodes.EMAIL_TEMPLATE_MANAGE, ResourceContext.none());
+
+        EmailTemplate template = findOrThrow(id);
+
+        if (template.getPipelineStage() != null && template.getPipelineStage().isActive()) {
+            throw new BusinessConflictException(ErrorCode.EMAIL_TEMPLATE_STAGE_CONFLICT);
+        }
+
+        template.setStatus(EmailTemplateStatus.INACTIVE);
+        template.setUpdatedAt(Instant.now(clock));
+        emailTemplateRepository.save(template);
+        log.info("Deactivated email template: id={}, code={}", id, template.getCode());
+    }
+
+    /**
      * Lists active pipeline stages for the "gan Stage" dropdown on the template form.
      */
     public List<PipelineStageResponseDto> listPipelineStages(CurrentUser currentUser) {

@@ -102,6 +102,21 @@ public class EmailTemplateController {
 
 
     /**
+     * Soft-deletes an email template (UC-09 AF-02). Requires EMAIL_TEMPLATE_MANAGE.
+     * Returns 409 (ME-15) when template is linked to an active stage (BR-EMAILTPL-03/EX-01).
+     *
+     * @return 204 No Content on success
+     */
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> delete(
+            @PathVariable Long id,
+            @CurrentUserPrincipal CurrentUser currentUser
+    ) {
+        emailTemplateService.delete(id, currentUser);
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
      * Lists active pipeline stages for the stage dropdown on the template form (UC-09 step 2).
      * Requires EMAIL_TEMPLATE_MANAGE.
      */
