@@ -36,9 +36,11 @@ public enum ErrorCode {
 
     // UC-07/UC-08 Cloud Storage integration
     INTEGRATION_PROVIDER_UNSUPPORTED("error.integration_provider_unsupported"),
-    INTEGRATION_NOT_CONNECTED("error.integration_not_connected");
     INTEGRATION_NOT_CONNECTED("error.integration_not_connected"),
 
+    // UC-17 Applicant Intake (ME-22 in the SRS message catalogue)
+    INVALID_CV_FILE("error.invalid_cv_file"),
+    PIPELINE_NOT_CONFIGURED("error.pipeline_not_configured");
 
     private final String key;
 
