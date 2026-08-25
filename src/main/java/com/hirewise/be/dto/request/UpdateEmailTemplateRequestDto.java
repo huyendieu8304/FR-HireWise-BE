@@ -1,5 +1,6 @@
 package com.hirewise.be.dto.request;
 
+import com.hirewise.be.validation.ValidTemplateVariables;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
@@ -32,8 +33,10 @@ public class UpdateEmailTemplateRequestDto {
 
     @NotBlank(message = "{validation.email_template.subject.required}")
     @Size(max = 255, message = "{validation.email_template.subject.size}")
+    @ValidTemplateVariables
     private String subjectTemplate;
 
     @NotBlank(message = "{validation.email_template.body.required}")
+    @ValidTemplateVariables
     private String bodyTemplate;
 }
