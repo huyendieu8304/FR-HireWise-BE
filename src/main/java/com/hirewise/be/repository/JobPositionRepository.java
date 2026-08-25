@@ -67,4 +67,47 @@ public interface JobPositionRepository extends JpaRepository<JobPosition, UUID> 
             WHERE j.status = com.hirewise.be.domain.JobStatus.PUBLISHED AND j.department IS NOT NULL
             """)
     java.util.List<Long> findDistinctDepartmentIdsWithPublishedJobs();
+
+    /**
+     * UC-14 normal flow step 2: returns all PENDING_APPROVAL job positions
+     * whose owning department is within the calling Hiring Manager's access
+     * scope (BR-APR-01, BR-RBAC-01).
+     *
+     * <p>Uses JOIN FETCH on {@code department} and {@code recruiter} to load
+     * the related entities in the same query and prevent N+1 selects when the
+     * service maps each row to a {@code PendingApprovalJobSummaryResponseDto}.
+     *
+     * @param allowedDepartmentIds department ids the manager is scoped to
+     *                             (already expanded with sub-departments by the
+     *                             service before calling this method)
+     * @param pageable             pagination and sort parameters
+     * @return page of PENDING_APPROVAL jobs within the manager's scope,
+     *         ordered by submission time (createdAt desc)
+     */
+    @Query("""
+            SELECT DISTINCT j FROM JobPosition j
+            LEFT JOIN FETCH j.department
+            LEFT JOIN FETCH j.recruiter
+            WHERE j.status = com.hirewise.be.domain.JobStatus.PENDING_APPROVAL
+              AND j.department.id IN :allowedDepartmentIds
+            """)
+    Page<JobPosition> findPendingApprovalInDepartments(
+            @Param("allowedDepartmentIds") java.util.List<Long> allowedDepartmentIds,
+            Pageable pageable);
+
+    /**
+     * UC-14 (SYSTEM scope variant): Hiring Managers with a SYSTEM-wide access
+     * scope (e.g. HR Admin acting as approver) see every PENDING_APPROVAL job,
+     * regardless of department.
+     *
+     * @param pageable pagination and sort parameters
+     * @return page of all PENDING_APPROVAL jobs
+     */
+    @Query("""
+            SELECT DISTINCT j FROM JobPosition j
+            LEFT JOIN FETCH j.department
+            LEFT JOIN FETCH j.recruiter
+            WHERE j.status = com.hirewise.be.domain.JobStatus.PENDING_APPROVAL
+            """)
+    Page<JobPosition> findAllPendingApproval(Pageable pageable);
 }
