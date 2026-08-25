@@ -26,4 +26,12 @@ public final class OutboxPayloads {
                 "fullName", fullName == null ? "" : fullName,
                 "ipAddress", ipAddress == null ? "" : ipAddress);
     }
+
+    /** Payload for {@link OutboxEventType#APPLICATION_CONFIRMATION_EMAIL} - keys read back by {@link OutboxDispatcher}. */
+    public static Map<String, Object> applicationConfirmationEmail(String email, String fullName, String jobTitle) {
+        return Map.of(
+                "email", email,
+                "fullName", fullName == null ? "" : fullName,
+                "jobTitle", jobTitle == null ? "" : jobTitle);
+    }
 }
