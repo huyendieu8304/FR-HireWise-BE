@@ -10,8 +10,10 @@ import com.hirewise.be.domain.PipelineTemplateStatus;
 import com.hirewise.be.domain.StageType;
 import com.hirewise.be.dto.request.CreatePipelineStageRequestDto;
 import com.hirewise.be.dto.request.CreatePipelineTemplateRequestDto;
+import com.hirewise.be.dto.request.ReorderPipelineStagesRequestDto;
 import com.hirewise.be.dto.response.PipelineStageResponseDto;
 import com.hirewise.be.dto.response.PipelineTemplateResponseDto;
+import com.hirewise.be.exception.BadRequestException;
 import com.hirewise.be.exception.BusinessConflictException;
 import com.hirewise.be.exception.ErrorCode;
 import com.hirewise.be.exception.ResourceNotFoundException;
@@ -29,12 +31,18 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
- * UC-04: HR Admin configuration of the recruitment Pipeline (Pipeline
- * Template + Stage). Reordering stages (UC-05) and deleting a stage
- * (UC-06) are separate use cases and are not implemented here.
+ * UC-04/UC-05: HR Admin configuration of the recruitment Pipeline
+ * (Pipeline Template + Stage) - creating stages (UC-04) and reordering
+ * them (UC-05). Deleting a stage (UC-06) is a separate use case and is
+ * not implemented here.
  * <p>
  * A new template always starts in {@link PipelineTemplateStatus#DRAFT} -
  * BR-PIPE-01 (at least 2 stages, including one {@code TERMINAL_SUCCESS}
@@ -172,6 +180,69 @@ public class PipelineService {
         log.info("Created pipeline stage: {} (templateId={}, code={}, position={})",
                 stage.getId(), templateId, stage.getCode(), stage.getPosition());
         return PipelineMapper.toResponseDto(stage);
+    }
+
+    /**
+     * UC-05 main flow: reorders every Stage of a Pipeline Template in one
+     * shot. {@code request.stageIds} must be the exact, full set of stage
+     * ids currently in the template, listed in the desired new order -
+     * {@code position = index + 1} is assigned for each and all rows are
+     * saved together in one transaction (BR-PIPE-04), matching the
+     * "toàn bộ position ... trong cùng 1 transaction" requirement so a
+     * partial/failed save (EX-01) can never leave the template with a
+     * gap or a duplicate position.
+     *
+     * @param templateId  id of the pipeline template whose stages are being reordered
+     * @param request     the full list of stage ids in the desired new order
+     * @param currentUser HR Admin performing the reorder
+     * @return the template's stages in their new order
+     * @throws ResourceNotFoundException if no template exists with {@code templateId}
+     * @throws BadRequestException       if {@code request.stageIds} is not exactly the
+     *                                    same set of ids as the template's current stages
+     *                                    (missing id, unknown id, or duplicate)
+     */
+    @Transactional
+    public List<PipelineStageResponseDto> reorderStages(
+            Long templateId, ReorderPipelineStagesRequestDto request, CurrentUser currentUser) {
+        PipelineTemplate template = findTemplateOrThrow(templateId);
+        Long departmentId = template.getDepartment() != null ? template.getDepartment().getId() : null;
+        accessControlService.checkAccess(currentUser, PermissionCodes.PIPELINE_MANAGE,
+                ResourceContext.department(departmentId));
+
+        List<PipelineStage> currentStages =
+                pipelineStageRepository.findByPipelineTemplate_IdOrderByPositionAsc(templateId);
+        Map<Long, PipelineStage> stageById =
+                currentStages.stream().collect(Collectors.toMap(PipelineStage::getId, Function.identity()));
+        validateReorderSet(request.getStageIds(), stageById.keySet());
+
+        Instant now = Instant.now(clock);
+        List<Long> orderedIds = request.getStageIds();
+        for (int index = 0; index < orderedIds.size(); index++) {
+            PipelineStage stage = stageById.get(orderedIds.get(index));
+            stage.setPosition(index + 1);
+            stage.setUpdatedAt(now);
+        }
+        pipelineStageRepository.saveAll(currentStages);
+
+        log.info("Reordered {} pipeline stages for templateId={}", currentStages.size(), templateId);
+        return orderedIds.stream()
+                .map(id -> PipelineMapper.toResponseDto(stageById.get(id)))
+                .toList();
+    }
+
+    /**
+     * BR-PIPE-04: {@code requestedIds} must be exactly the same set as
+     * {@code existingIds} - no missing id (a stage silently dropped out of
+     * the ordering), no unknown/foreign id, and no duplicate (which would
+     * otherwise silently drop a different stage out while leaving two rows
+     * pointing at the same position).
+     */
+    private void validateReorderSet(List<Long> requestedIds, Set<Long> existingIds) {
+        Set<Long> requestedSet = new HashSet<>(requestedIds);
+        boolean sameSize = requestedSet.size() == requestedIds.size() && requestedSet.size() == existingIds.size();
+        if (!sameSize || !requestedSet.equals(existingIds)) {
+            throw new BadRequestException(ErrorCode.PIPELINE_STAGE_REORDER_MISMATCH);
+        }
     }
 
     private static boolean isTerminalStageType(StageType stageType) {

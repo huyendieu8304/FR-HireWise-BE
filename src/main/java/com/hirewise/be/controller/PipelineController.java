@@ -2,6 +2,7 @@ package com.hirewise.be.controller;
 
 import com.hirewise.be.dto.request.CreatePipelineStageRequestDto;
 import com.hirewise.be.dto.request.CreatePipelineTemplateRequestDto;
+import com.hirewise.be.dto.request.ReorderPipelineStagesRequestDto;
 import com.hirewise.be.dto.response.PipelineStageResponseDto;
 import com.hirewise.be.dto.response.PipelineTemplateResponseDto;
 import com.hirewise.be.security.CurrentUser;
@@ -14,6 +15,7 @@ import lombok.experimental.FieldDefaults;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -23,17 +25,18 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 
 /**
- * UC-04: Pipeline Template + Stage configuration. Every endpoint here
- * requires {@code PIPELINE_MANAGE} (HR_ADMIN), enforced inside
+ * UC-04/UC-05: Pipeline Template + Stage configuration. Every endpoint
+ * here requires {@code PIPELINE_MANAGE} (HR_ADMIN), enforced inside
  * {@link PipelineService} rather than duplicated as a role gate here (see
  * the {@code authorization} package).
  * <p>
  * RBAC per endpoint:
  * <ul>
- *   <li>{@code GET  /api/pipeline-templates}                     - {@code PIPELINE_MANAGE}</li>
- *   <li>{@code POST /api/pipeline-templates}                     - {@code PIPELINE_MANAGE}</li>
- *   <li>{@code GET  /api/pipeline-templates/{templateId}/stages} - {@code PIPELINE_MANAGE}</li>
- *   <li>{@code POST /api/pipeline-templates/{templateId}/stages} - {@code PIPELINE_MANAGE}</li>
+ *   <li>{@code GET   /api/pipeline-templates}                             - {@code PIPELINE_MANAGE}</li>
+ *   <li>{@code POST  /api/pipeline-templates}                             - {@code PIPELINE_MANAGE}</li>
+ *   <li>{@code GET   /api/pipeline-templates/{templateId}/stages}         - {@code PIPELINE_MANAGE}</li>
+ *   <li>{@code POST  /api/pipeline-templates/{templateId}/stages}         - {@code PIPELINE_MANAGE}</li>
+ *   <li>{@code PATCH /api/pipeline-templates/{templateId}/stages/reorder} - {@code PIPELINE_MANAGE}</li>
  * </ul>
  */
 @RestController
@@ -102,5 +105,22 @@ public class PipelineController {
             @CurrentUserPrincipal CurrentUser currentUser) {
         PipelineStageResponseDto response = pipelineService.createStage(templateId, request, currentUser);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    /**
+     * UC-05 main flow: reorders every Stage of a Pipeline Template in one
+     * shot. Requires {@code PIPELINE_MANAGE}.
+     *
+     * @param templateId  id of the pipeline template whose stages are being reordered
+     * @param request     the full list of stage ids in the desired new order
+     * @param currentUser authenticated caller, used for authorization and auditing
+     * @return the template's stages in their new order
+     */
+    @PatchMapping("/{templateId}/stages/reorder")
+    public ResponseEntity<List<PipelineStageResponseDto>> reorderStages(
+            @PathVariable Long templateId,
+            @Valid @RequestBody ReorderPipelineStagesRequestDto request,
+            @CurrentUserPrincipal CurrentUser currentUser) {
+        return ResponseEntity.ok(pipelineService.reorderStages(templateId, request, currentUser));
     }
 }

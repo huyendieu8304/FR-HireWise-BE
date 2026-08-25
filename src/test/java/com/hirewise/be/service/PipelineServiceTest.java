@@ -10,8 +10,10 @@ import com.hirewise.be.domain.PipelineTemplateStatus;
 import com.hirewise.be.domain.StageType;
 import com.hirewise.be.dto.request.CreatePipelineStageRequestDto;
 import com.hirewise.be.dto.request.CreatePipelineTemplateRequestDto;
+import com.hirewise.be.dto.request.ReorderPipelineStagesRequestDto;
 import com.hirewise.be.dto.response.PipelineStageResponseDto;
 import com.hirewise.be.dto.response.PipelineTemplateResponseDto;
+import com.hirewise.be.exception.BadRequestException;
 import com.hirewise.be.exception.BusinessConflictException;
 import com.hirewise.be.exception.ErrorCode;
 import com.hirewise.be.exception.PermissionDeniedException;
@@ -86,6 +88,13 @@ class PipelineServiceTest {
                 .createdAt(NOW)
                 .updatedAt(NOW)
                 .build();
+    }
+
+    private PipelineStage stage(Long id, int position, PipelineTemplate template) {
+        return PipelineStage.builder()
+                .id(id).pipelineTemplate(template).name("Stage " + id).code("STAGE_" + id)
+                .stageType(StageType.SCREENING).position(position).terminal(false).active(true)
+                .createdAt(NOW).updatedAt(NOW).build();
     }
 
     @Test
@@ -232,6 +241,106 @@ class PipelineServiceTest {
 
         // The stage itself has no department field - scope must be derived from its
         // PARENT TEMPLATE's department, not left as ResourceContext.none().
+        verify(accessControlService).checkAccess(hrAdmin, PermissionCodes.PIPELINE_MANAGE,
+                ResourceContext.department(DEPARTMENT_ID));
+    }
+
+    @Test
+    void reorderStages_unknownTemplate_throwsResourceNotFound() {
+        when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.empty());
+        ReorderPipelineStagesRequestDto request = new ReorderPipelineStagesRequestDto(List.of(1L, 2L));
+
+        assertThatThrownBy(() -> pipelineService.reorderStages(TEMPLATE_ID, request, hrAdmin))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.PIPELINE_TEMPLATE_NOT_FOUND);
+        verify(accessControlService, never()).checkAccess(any(), any(), any());
+    }
+
+    @Test
+    void reorderStages_reassignsPositionsInRequestedOrder_BR_PIPE_04() {
+        PipelineTemplate template = templateWithDepartment(null);
+        PipelineStage stage1 = stage(1L, 1, template);
+        PipelineStage stage2 = stage(2L, 2, template);
+        PipelineStage stage3 = stage(3L, 3, template);
+        when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.of(template));
+        when(pipelineStageRepository.findByPipelineTemplate_IdOrderByPositionAsc(TEMPLATE_ID))
+                .thenReturn(List.of(stage1, stage2, stage3));
+        // HR Admin kéo Stage 3 lên đầu: thứ tự mới mong muốn là [3, 1, 2].
+        ReorderPipelineStagesRequestDto request = new ReorderPipelineStagesRequestDto(List.of(3L, 1L, 2L));
+
+        List<PipelineStageResponseDto> response = pipelineService.reorderStages(TEMPLATE_ID, request, hrAdmin);
+
+        assertThat(response).extracting(PipelineStageResponseDto::getId).containsExactly(3L, 1L, 2L);
+        assertThat(response).extracting(PipelineStageResponseDto::getPosition).containsExactly(1, 2, 3);
+        assertThat(stage3.getPosition()).isEqualTo(1);
+        assertThat(stage1.getPosition()).isEqualTo(2);
+        assertThat(stage2.getPosition()).isEqualTo(3);
+        verify(pipelineStageRepository).saveAll(List.of(stage1, stage2, stage3));
+    }
+
+    @Test
+    void reorderStages_missingStageId_throwsBadRequest_BR_PIPE_04() {
+        PipelineTemplate template = templateWithDepartment(null);
+        PipelineStage stage1 = stage(1L, 1, template);
+        PipelineStage stage2 = stage(2L, 2, template);
+        when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.of(template));
+        when(pipelineStageRepository.findByPipelineTemplate_IdOrderByPositionAsc(TEMPLATE_ID))
+                .thenReturn(List.of(stage1, stage2));
+        // Thiếu stage id 2L trong danh sách gửi lên -> phải chặn, không được âm thầm bỏ rơi 1 stage.
+        ReorderPipelineStagesRequestDto request = new ReorderPipelineStagesRequestDto(List.of(1L));
+
+        assertThatThrownBy(() -> pipelineService.reorderStages(TEMPLATE_ID, request, hrAdmin))
+                .isInstanceOf(BadRequestException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.PIPELINE_STAGE_REORDER_MISMATCH);
+        verify(pipelineStageRepository, never()).saveAll(any());
+    }
+
+    @Test
+    void reorderStages_unknownForeignStageId_throwsBadRequest() {
+        PipelineTemplate template = templateWithDepartment(null);
+        PipelineStage stage1 = stage(1L, 1, template);
+        PipelineStage stage2 = stage(2L, 2, template);
+        when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.of(template));
+        when(pipelineStageRepository.findByPipelineTemplate_IdOrderByPositionAsc(TEMPLATE_ID))
+                .thenReturn(List.of(stage1, stage2));
+        // 999L không thuộc Template này (vd thuộc Template khác) -> phải chặn.
+        ReorderPipelineStagesRequestDto request = new ReorderPipelineStagesRequestDto(List.of(1L, 999L));
+
+        assertThatThrownBy(() -> pipelineService.reorderStages(TEMPLATE_ID, request, hrAdmin))
+                .isInstanceOf(BadRequestException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.PIPELINE_STAGE_REORDER_MISMATCH);
+        verify(pipelineStageRepository, never()).saveAll(any());
+    }
+
+    @Test
+    void reorderStages_duplicateStageId_throwsBadRequest() {
+        PipelineTemplate template = templateWithDepartment(null);
+        PipelineStage stage1 = stage(1L, 1, template);
+        PipelineStage stage2 = stage(2L, 2, template);
+        when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.of(template));
+        when(pipelineStageRepository.findByPipelineTemplate_IdOrderByPositionAsc(TEMPLATE_ID))
+                .thenReturn(List.of(stage1, stage2));
+        // 1L bị lặp lại, đồng nghĩa 2L bị rơi ra khỏi danh sách dù size trùng khớp ngẫu nhiên.
+        ReorderPipelineStagesRequestDto request = new ReorderPipelineStagesRequestDto(List.of(1L, 1L));
+
+        assertThatThrownBy(() -> pipelineService.reorderStages(TEMPLATE_ID, request, hrAdmin))
+                .isInstanceOf(BadRequestException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.PIPELINE_STAGE_REORDER_MISMATCH);
+        verify(pipelineStageRepository, never()).saveAll(any());
+    }
+
+    @Test
+    void reorderStages_departmentScopedTemplate_checksAccessWithTemplateDepartment() {
+        PipelineTemplate template = templateWithDepartment(DEPARTMENT_ID);
+        PipelineStage stage1 = stage(1L, 1, template);
+        PipelineStage stage2 = stage(2L, 2, template);
+        when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.of(template));
+        when(pipelineStageRepository.findByPipelineTemplate_IdOrderByPositionAsc(TEMPLATE_ID))
+                .thenReturn(List.of(stage1, stage2));
+        ReorderPipelineStagesRequestDto request = new ReorderPipelineStagesRequestDto(List.of(2L, 1L));
+
+        pipelineService.reorderStages(TEMPLATE_ID, request, hrAdmin);
+
         verify(accessControlService).checkAccess(hrAdmin, PermissionCodes.PIPELINE_MANAGE,
                 ResourceContext.department(DEPARTMENT_ID));
     }
