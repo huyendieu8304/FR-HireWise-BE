@@ -40,7 +40,12 @@ public enum ErrorCode {
 
     // UC-04 Pipeline Template & Stage configuration
     PIPELINE_TEMPLATE_NOT_FOUND("error.pipeline_template_not_found"),
-    PIPELINE_STAGE_CODE_ALREADY_EXISTS("error.pipeline_stage_code_already_exists");
+    PIPELINE_STAGE_CODE_ALREADY_EXISTS("error.pipeline_stage_code_already_exists"),
+
+    // UC-09 Email Template management (BR-EMAILTPL-01/03/ME-15)
+    EMAIL_TEMPLATE_NOT_FOUND("error.email_template_not_found"),
+    EMAIL_TEMPLATE_CODE_DUPLICATE("error.email_template_code_duplicate"),
+    EMAIL_TEMPLATE_STAGE_CONFLICT("error.email_template_stage_conflict");
 
     private final String key;
 

@@ -40,4 +40,12 @@ public interface PipelineStageRepository extends JpaRepository<PipelineStage, Lo
      */
     @Query("SELECT COALESCE(MAX(s.position), 0) FROM PipelineStage s WHERE s.pipelineTemplate.id = :templateId")
     int findMaxPosition(@Param("templateId") Long templateId);
+
+
+    /**
+     * Returns all active pipeline stages sorted by position ascending, so the
+     * dropdown displays them in the same order they appear in the Kanban board.
+     */
+    List<PipelineStage> findByActiveTrueOrderByPositionAsc();
+
 }
