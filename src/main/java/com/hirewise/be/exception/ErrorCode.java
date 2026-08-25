@@ -37,6 +37,8 @@ public enum ErrorCode {
     // UC-07/UC-08 Cloud Storage integration
     INTEGRATION_PROVIDER_UNSUPPORTED("error.integration_provider_unsupported"),
     INTEGRATION_NOT_CONNECTED("error.integration_not_connected");
+    INTEGRATION_NOT_CONNECTED("error.integration_not_connected"),
+
 
     private final String key;
 

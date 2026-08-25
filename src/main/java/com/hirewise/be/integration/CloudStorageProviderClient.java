@@ -74,4 +74,25 @@ public interface CloudStorageProviderClient {
      *         {@code null} if it could not be created right now
      */
     String createRootFolder(String accessToken);
+
+    /**
+     * upload file into the connected Cloud Storage account, inside the root folder. Unlike
+     * {@link #createRootFolder}, a failure here IS fatal to the caller
+     * (see {@code service.FileStorageService}) - EX-03 handles that by
+     * catching {@link IntegrationConnectException} and queueing the file
+     * locally instead (BR-STORAGE-02), rather than by this method
+     * swallowing the error itself.
+     *
+     * @param accessToken    a still-valid access token for the connection
+     * @param rootFolderId   the BR-STORAGE-03 root folder id/path, or
+     *                       {@code null} if it was never created (the file
+     *                       is then uploaded to the account root)
+     * @param fileName       name to store the file under
+     * @param mimeType       the file's content type, e.g. {@code "application/pdf"}
+     * @param content        the raw file bytes
+     * @return the provider-side id of the uploaded file (stored as
+     *         {@code files.external_file_id})
+     * @throws IntegrationConnectException if the upload fails (expired token, network error...)
+     */
+    String uploadFile(String accessToken, String rootFolderId, String fileName, String mimeType, byte[] content);
 }

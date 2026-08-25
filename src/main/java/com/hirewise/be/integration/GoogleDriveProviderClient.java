@@ -27,6 +27,7 @@ public class GoogleDriveProviderClient implements CloudStorageProviderClient {
     private static final String AUTHORIZATION_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth";
     private static final String TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
     private static final String DRIVE_API_BASE_URL = "https://www.googleapis.com/drive/v3";
+    private static final String DRIVE_UPLOAD_BASE_URL = "https://www.googleapis.com/upload/drive/v3";
     private static final String SCOPE = "https://www.googleapis.com/auth/drive.file";
     private static final String ROOT_FOLDER_NAME = "HireWise";
 
@@ -35,6 +36,7 @@ public class GoogleDriveProviderClient implements CloudStorageProviderClient {
     private final String redirectUri;
     private final RestClient tokenClient = RestClient.create();
     private final RestClient driveClient = RestClient.builder().baseUrl(DRIVE_API_BASE_URL).build();
+    private final RestClient driveUploadClient = RestClient.builder().baseUrl(DRIVE_UPLOAD_BASE_URL).build();
 
     public GoogleDriveProviderClient(
             @Value("${app.integration.google-drive.client-id:}") String clientId,
@@ -137,6 +139,45 @@ public class GoogleDriveProviderClient implements CloudStorageProviderClient {
             // Non-fatal by design - see CloudStorageProviderClient#createRootFolder.
             log.warn("Failed to create the Google Drive root folder right after connecting: {}", e.getMessage());
             return null;
+        }
+    }
+
+    @Override
+    public String uploadFile(String accessToken, String rootFolderId, String fileName, String mimeType, byte[] content) {
+        try {
+            // Step 1/2: create the file's metadata (name + parent folder) - Drive's simple
+            // "multipart in one call" upload is more fiddly to build by hand than doing
+            // metadata-create then media-upload as two plain requests.
+            Map<String, Object> metadata = rootFolderId != null
+                    ? Map.of("name", fileName, "parents", java.util.List.of(rootFolderId))
+                    : Map.of("name", fileName);
+            Map<?, ?> created = driveClient.post()
+                    .uri("/files")
+                    .headers(headers -> headers.setBearerAuth(accessToken))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(metadata)
+                    .retrieve()
+                    .body(Map.class);
+            String fileId = created == null ? null : (String) created.get("id");
+            if (fileId == null) {
+                throw new IntegrationConnectException("Google Drive did not return a file id after metadata create");
+            }
+
+            // Step 2/2: upload the actual bytes onto the file just created.
+            MediaType contentType = mimeType != null && !mimeType.isBlank()
+                    ? MediaType.parseMediaType(mimeType) : MediaType.APPLICATION_OCTET_STREAM;
+            driveUploadClient.patch()
+                    .uri("/files/{id}?uploadType=media", fileId)
+                    .headers(headers -> {
+                        headers.setBearerAuth(accessToken);
+                        headers.setContentType(contentType);
+                    })
+                    .body(content)
+                    .retrieve()
+                    .toBodilessEntity();
+            return fileId;
+        } catch (RestClientException e) {
+            throw new IntegrationConnectException("Google Drive file upload failed", e);
         }
     }
 
