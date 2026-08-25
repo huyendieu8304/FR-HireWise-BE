@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Repository for {@link PipelineStage} entities.
@@ -41,11 +42,20 @@ public interface PipelineStageRepository extends JpaRepository<PipelineStage, Lo
     @Query("SELECT COALESCE(MAX(s.position), 0) FROM PipelineStage s WHERE s.pipelineTemplate.id = :templateId")
     int findMaxPosition(@Param("templateId") Long templateId);
 
-
     /**
      * Returns all active pipeline stages sorted by position ascending, so the
      * dropdown displays them in the same order they appear in the Kanban board.
      */
     List<PipelineStage> findByActiveTrueOrderByPositionAsc();
+
+    /**
+     * BR-APPLY-04: the stage a brand-new Application is placed into -
+     * always the first active stage (lowest {@code position}) of the Job's
+     * Pipeline Template.
+     *
+     * @param pipelineTemplateId the Job's assigned pipeline template
+     * @return the first active stage, if the template has one configured
+     */
+    Optional<PipelineStage> findFirstByPipelineTemplate_IdAndActiveTrueOrderByPositionAsc(Long pipelineTemplateId);
 
 }

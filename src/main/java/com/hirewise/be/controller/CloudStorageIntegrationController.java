@@ -51,7 +51,7 @@ public class CloudStorageIntegrationController {
     }
 
     /**
-     * UC-08 step 2: current Cloud Storage connection status.
+     * current Cloud Storage connection status.
      *
      * @param currentUser authenticated caller, must have {@code INTEGRATION_MANAGE}
      * @return the current status (never 404 - "never connected" is a normal status value)
@@ -62,8 +62,7 @@ public class CloudStorageIntegrationController {
     }
 
     /**
-     * UC-07 step 1-3 / UC-08 AF-01 (Reconnect) step 3-4: returns the URL to
-     * open for the provider's consent screen.
+     * returns the URL to open for the provider's consent screen.
      *
      * @param provider    path segment, e.g. {@code "google-drive"} or {@code "dropbox"}
      * @param currentUser authenticated caller, must have {@code INTEGRATION_MANAGE}

@@ -15,6 +15,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.time.Instant;
@@ -138,6 +139,27 @@ public class GlobalExceptionHandler {
                 .status(status.value())
                 .code(ErrorCode.INVALID_INPUT.name())
                 .message(message)
+                .path(request.getRequestURI())
+                .build();
+        return new ResponseEntity<>(errorResponse, status);
+    }
+
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<ErrorResponse> handleMaxUploadSizeExceeded(MaxUploadSizeExceededException ex, HttpServletRequest request) {
+        // UC-17 EX-01: the multipart parser itself rejects a CV over the configured
+        // spring.servlet.multipart.max-file-size before our own BR-APPLY-01 size check
+        // even runs - same client-facing error either way (ME-22).
+        HttpStatus status = HttpStatus.BAD_REQUEST;
+        Locale locale = LocaleContextHolder.getLocale();
+        String detailMessage = messageSource.getMessage(ErrorCode.INVALID_CV_FILE.getKey(), null, "File too large", locale);
+
+        log.debug("Upload rejected (too large) at {}", request.getRequestURI());
+
+        ErrorResponse errorResponse = ErrorResponse.builder()
+                .timestamp(Instant.now().toString())
+                .status(status.value())
+                .code(ErrorCode.INVALID_CV_FILE.name())
+                .message(detailMessage)
                 .path(request.getRequestURI())
                 .build();
         return new ResponseEntity<>(errorResponse, status);

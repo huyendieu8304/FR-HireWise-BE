@@ -74,6 +74,29 @@ public class EmailServiceImpl implements EmailService {
         send(toEmail, subject, plainText, html);
     }
 
+    @Override
+    public void sendApplicationConfirmationEmail(String toEmail, String fullName, String jobTitle) {
+        String subject = productName + " - Xac nhan da nhan ho so ung tuyen";
+        String greeting = fullName == null || fullName.isBlank() ? "Xin chao" : "Xin chao " + fullName;
+        
+        String plainText = "%s,\n\n%s da nhan duoc ho so ung tuyen cua ban cho vi tri %s.\n\nDoi ngu tuyen dung se xem xet ho so va lien he lai voi ban qua email/so dien thoai da cung cap neu ho so phu hop.\n\nCam on ban da quan tam den co hoi nghe nghiep tai %s."
+                .formatted(greeting, productName, jobTitle, productName);
+                
+        String html = """
+                <!DOCTYPE html>
+                <html>
+                <body>
+                    <p>%s,</p>
+                    <p>%s da nhan duoc ho so ung tuyen cua ban cho vi tri <strong>%s</strong>.</p>
+                    <p>Doi ngu tuyen dung se xem xet ho so va lien he lai voi ban qua email/so dien thoai da cung cap neu ho so phu hop.</p>
+                    <p>Cam on ban da quan tam den co hoi nghe nghiep tai %s.</p>
+                </body>
+                </html>
+                """.formatted(greeting, productName, jobTitle, productName);
+                
+        send(toEmail, subject, plainText, html);
+    }
+
     private void send(String toEmail, String subject, String plainText, String html) {
         try {
             MimeMessage message = mailSender.createMimeMessage();

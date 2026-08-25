@@ -24,6 +24,9 @@ public class DropboxProviderClient implements CloudStorageProviderClient {
     private static final String AUTHORIZATION_ENDPOINT = "https://www.dropbox.com/oauth2/authorize";
     private static final String TOKEN_ENDPOINT = "https://api.dropboxapi.com/oauth2/token";
     private static final String API_BASE_URL = "https://api.dropboxapi.com/2";
+    // Dropbox splits its API across two hosts: api.dropboxapi.com for RPC-style calls
+    // (used above) and content.dropboxapi.com for anything that streams a file body.
+    private static final String CONTENT_BASE_URL = "https://content.dropboxapi.com/2";
     private static final String ROOT_FOLDER_PATH = "/HireWise";
 
     private final String clientId;
@@ -31,6 +34,7 @@ public class DropboxProviderClient implements CloudStorageProviderClient {
     private final String redirectUri;
     private final RestClient tokenClient = RestClient.create();
     private final RestClient apiClient = RestClient.builder().baseUrl(API_BASE_URL).build();
+    private final RestClient contentClient = RestClient.builder().baseUrl(CONTENT_BASE_URL).build();
 
     public DropboxProviderClient(
             @Value("${app.integration.dropbox.client-id:}") String clientId,
@@ -116,25 +120,63 @@ public class DropboxProviderClient implements CloudStorageProviderClient {
     public String createRootFolder(String accessToken) {
         try {
             Map<String, Object> body = Map.of("path", ROOT_FOLDER_PATH);
-            Map<?, ?> response = apiClient.post()
+            apiClient.post()
                     .uri("/files/create_folder_v2")
                     .headers(headers -> headers.setBearerAuth(accessToken))
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(body)
                     .retrieve()
-                    .body(Map.class);
-            if (response == null) {
-                return null;
-            }
-            Object metadata = response.get("metadata");
-            return metadata instanceof Map<?, ?> metadataMap ? (String) metadataMap.get("id") : null;
+                    .toBodilessEntity();
+            // Unlike Google Drive's opaque folder id, Dropbox addresses everything by
+            // PATH (see #uploadFile) - the stable, well-known ROOT_FOLDER_PATH itself is
+            // what callers need here, not the create call's own (equally opaque) metadata id.
+            return ROOT_FOLDER_PATH;
         } catch (RestClientException e) {
-            // Non-fatal by design (also covers the common case where the folder
-            // already exists from a previous connect - Dropbox returns a 409 for
-            // that, which is fine to just log and move on from).
-            log.warn("Failed to create the Dropbox root folder right after connecting: {}", e.getMessage());
-            return null;
+            // Non-fatal by design (also covers the common case where the folder already
+            // exists from a previous connect - Dropbox returns a 409 for that, which just
+            // means the root folder is already there, so it's still safe to return its path).
+            log.warn("Create Dropbox root folder call did not succeed cleanly (may already exist): {}", e.getMessage());
+            return ROOT_FOLDER_PATH;
         }
+    }
+
+    @Override
+    public String uploadFile(String accessToken, String rootFolderId, String subfolderName, String fileName, String mimeType, byte[] content) {
+        try {
+            // Dropbox addresses files/folders by path, not by an opaque parent id -
+            // rootFolderId here IS the BR-STORAGE-03 root folder path (see createRootFolder).
+            String parentPath = rootFolderId != null ? rootFolderId : ROOT_FOLDER_PATH;
+            String subfolderPath = subfolderName != null && !subfolderName.isBlank() ? "/" + sanitizeForPath(subfolderName) : "";
+            String targetPath = parentPath + subfolderPath + "/" + sanitizeForPath(fileName);
+            // Dropbox-API-Arg carries call arguments as a JSON string in a header
+            // (the body itself is the raw file content) - built by hand since it's
+            // a single small, fully-controlled object.
+            String apiArg = "{\"path\":\"" + escapeJson(targetPath) + "\",\"mode\":\"add\",\"autorename\":true,\"mute\":false}";
+            MediaType contentType = mimeType != null && !mimeType.isBlank()
+                    ? MediaType.parseMediaType(mimeType) : MediaType.APPLICATION_OCTET_STREAM;
+
+            Map<?, ?> response = contentClient.post()
+                    .uri("/files/upload")
+                    .headers(headers -> {
+                        headers.setBearerAuth(accessToken);
+                        headers.set("Dropbox-API-Arg", apiArg);
+                        headers.setContentType(contentType);
+                    })
+                    .body(content)
+                    .retrieve()
+                    .body(Map.class);
+            return response == null ? null : (String) response.get("id");
+        } catch (RestClientException e) {
+            throw new IntegrationConnectException("Dropbox file upload failed", e);
+        }
+    }
+
+    private static String sanitizeForPath(String fileName) {
+        return fileName == null || fileName.isBlank() ? "file" : fileName.replace("/", "_");
+    }
+
+    private static String escapeJson(String value) {
+        return value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
     private void requireConfigured() {

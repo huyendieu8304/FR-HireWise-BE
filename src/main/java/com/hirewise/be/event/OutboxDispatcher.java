@@ -72,6 +72,10 @@ public class OutboxDispatcher {
                         requireField(payload, "email", event.getEventType()),
                         payload.path("fullName").asText(null),
                         payload.path("ipAddress").asText(null));
+                case APPLICATION_CONFIRMATION_EMAIL -> emailService.sendApplicationConfirmationEmail(
+                        requireField(payload, "email", event.getEventType()),
+                        payload.path("fullName").asText(null),
+                        requireField(payload, "jobTitle", event.getEventType()));
             }
             event.setStatus(OutboxEventStatus.SENT);
             event.setProcessedAt(Instant.now(clock));
