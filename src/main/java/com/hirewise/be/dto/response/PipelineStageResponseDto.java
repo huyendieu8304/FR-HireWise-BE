@@ -6,8 +6,10 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.time.Instant;
+
 /**
- * Lightweight pipeline stage projection for the Email Template form dropdown (UC-09 step 2).
+ * Response body representing one Stage (Kanban column) of a Pipeline Template.
  */
 @Data
 @NoArgsConstructor
@@ -15,10 +17,16 @@ import lombok.NoArgsConstructor;
 @Builder
 public class PipelineStageResponseDto {
     private Long id;
+    private Long pipelineTemplateId;
     private String name;
     private String code;
     private StageType stageType;
     private int position;
+    private boolean terminal;
+    private Integer slaHours;
+    private boolean active;
+    private Instant createdAt;
+    private Instant updatedAt;
     /** Name of the parent pipeline template - helps disambiguate stages with the same name. */
     private String pipelineTemplateName;
 }
