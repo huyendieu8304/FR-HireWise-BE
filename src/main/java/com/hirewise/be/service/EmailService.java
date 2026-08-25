@@ -13,4 +13,7 @@ public interface EmailService {
 
     /** 5 failed login attempts within 15 minutes - notify the account owner. */
     void sendSecurityAlertEmail(String toEmail, String fullName, String ipAddress);
+
+    /** EM-04 (UC-17 step 7): confirms a candidate's application to {@code jobTitle} was received. */
+    void sendApplicationConfirmationEmail(String toEmail, String fullName, String jobTitle);
 }

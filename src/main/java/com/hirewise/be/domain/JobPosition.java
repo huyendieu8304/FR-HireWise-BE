@@ -47,6 +47,10 @@ public class JobPosition {
     @JoinColumn(name = "department_id")
     private Department department;
 
+    /** Work location shown on the public Job Board (UC-16 normal flow step 2), e.g. "Ho Chi Minh". */
+    @Column(length = 255)
+    private String location;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "employment_type", length = 20)
     private EmploymentType employmentType;

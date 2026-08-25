@@ -30,4 +30,6 @@ public class PipelineStageResponseDto {
     private long applicationCount;
     private Instant createdAt;
     private Instant updatedAt;
+    /** Name of the parent pipeline template - helps disambiguate stages with the same name. */
+    private String pipelineTemplateName;
 }

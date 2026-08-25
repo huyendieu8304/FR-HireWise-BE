@@ -38,6 +38,10 @@ public enum ErrorCode {
     INTEGRATION_PROVIDER_UNSUPPORTED("error.integration_provider_unsupported"),
     INTEGRATION_NOT_CONNECTED("error.integration_not_connected"),
 
+    // UC-17 Applicant Intake (ME-22 in the SRS message catalogue)
+    INVALID_CV_FILE("error.invalid_cv_file"),
+    PIPELINE_NOT_CONFIGURED("error.pipeline_not_configured"),
+
     // UC-04 Pipeline Template & Stage configuration
     PIPELINE_TEMPLATE_NOT_FOUND("error.pipeline_template_not_found"),
     PIPELINE_STAGE_CODE_ALREADY_EXISTS("error.pipeline_stage_code_already_exists"),
@@ -47,7 +51,12 @@ public enum ErrorCode {
     PIPELINE_STAGE_REORDER_MISMATCH("error.pipeline_stage_reorder_mismatch"),
 
     // UC-06 Delete Pipeline Stage
-    PIPELINE_STAGE_HAS_APPLICATIONS("error.pipeline_stage_has_applications");
+    PIPELINE_STAGE_HAS_APPLICATIONS("error.pipeline_stage_has_applications"),
+
+    // UC-09 Email Template management (BR-EMAILTPL-01/03/ME-15)
+    EMAIL_TEMPLATE_NOT_FOUND("error.email_template_not_found"),
+    EMAIL_TEMPLATE_CODE_DUPLICATE("error.email_template_code_duplicate"),
+    EMAIL_TEMPLATE_STAGE_CONFLICT("error.email_template_stage_conflict");
 
     private final String key;
 

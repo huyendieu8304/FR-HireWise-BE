@@ -154,6 +154,9 @@ public class SecurityConfig {
                     // Public endpoints: healthcheck, login/refresh/activation/Google SSO and demo endpoints that don't require login.
                     .requestMatchers("/actuator/health/**").permitAll()
                     .requestMatchers(HttpMethod.GET, "/api/public/**").permitAll()
+                    // an anonymous candidate submits their application - the blanket
+                    // GET-only rule above doesn't cover this POST, so it needs its own entry.
+                    .requestMatchers(HttpMethod.POST, "/api/public/jobs/*/applications").permitAll()
                     .requestMatchers("/api/auth/**").permitAll()
                     // hit by the Google/Dropbox OAuth redirect itself
                     .requestMatchers(HttpMethod.GET, "/api/integrations/cloud-storage/*/callback").permitAll()
