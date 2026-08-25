@@ -35,7 +35,7 @@ public interface JobPositionRepository extends JpaRepository<JobPosition, UUID> 
             WHERE j.status = com.hirewise.be.domain.JobStatus.PUBLISHED
               AND (:departmentId IS NULL OR j.department.id = :departmentId)
               AND (:employmentType IS NULL OR j.employmentType = :employmentType)
-              AND (:keyword IS NULL OR LOWER(j.title) LIKE LOWER(CONCAT('%', :keyword, '%')))
+              AND (:keyword = '' OR LOWER(j.title) LIKE LOWER(CONCAT('%', :keyword, '%')))
             """)
     Page<JobPosition> searchPublished(@Param("departmentId") Long departmentId,
                                        @Param("employmentType") EmploymentType employmentType,

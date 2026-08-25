@@ -48,7 +48,7 @@ public class PublicJobBoardService {
      */
     public PagedResponseDto<JobBoardSummaryResponseDto> list(Long departmentId, EmploymentType employmentType,
                                                               String keyword, Pageable pageable) {
-        String normalizedKeyword = (keyword == null || keyword.isBlank()) ? null : keyword.trim();
+        String normalizedKeyword = (keyword == null || keyword.isBlank()) ? "" : keyword.trim();
         Page<JobPosition> page = jobPositionRepository.searchPublished(departmentId, employmentType, normalizedKeyword, pageable);
         List<JobBoardSummaryResponseDto> content = page.getContent().stream()
                 .map(JobBoardMapper::toSummaryDto)
