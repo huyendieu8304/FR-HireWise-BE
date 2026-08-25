@@ -27,4 +27,6 @@ public class PipelineStageResponseDto {
     private boolean active;
     private Instant createdAt;
     private Instant updatedAt;
+    /** Name of the parent pipeline template - helps disambiguate stages with the same name. */
+    private String pipelineTemplateName;
 }

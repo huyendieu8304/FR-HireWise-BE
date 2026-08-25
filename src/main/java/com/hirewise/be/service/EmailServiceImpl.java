@@ -38,35 +38,47 @@ public class EmailServiceImpl implements EmailService {
     public void sendActivationEmail(String toEmail, String fullName, String activationLink) {
         String subject = productName + " - Kich hoat tai khoan cua ban";
         String greeting = fullName == null || fullName.isBlank() ? "Xin chao" : "Xin chao " + fullName;
+        String plainText = "%s,\n\nTai khoan noi bo cua ban tren %s da duoc tao. Vui long truy cap lien ket ben duoi de dat mat khau va kich hoat tai khoan:\n%s\n\nLien ket nay se het han sau mot khoang thoi gian gioi han. Neu ban khong yeu cau, vui long bo qua email nay."
+                .formatted(greeting, productName, activationLink);
         String html = """
-                <p>%s,</p>
-                <p>Tai khoan noi bo cua ban tren %s da duoc tao. Vui long bam vao lien ket ben duoi
-                de dat mat khau va kich hoat tai khoan:</p>
-                <p><a href="%s">%s</a></p>
-                <p>Lien ket nay se het han sau mot khoang thoi gian gioi han. Neu ban khong yeu cau,
-                vui long bo qua email nay.</p>
-                """.formatted(greeting, productName, activationLink, activationLink);
-        send(toEmail, subject, html);
+                <!DOCTYPE html>
+                <html>
+                <body>
+                    <p>%s,</p>
+                    <p>Tai khoan noi bo cua ban tren %s da duoc tao. Vui long bam vao lien ket ben duoi de dat mat khau va kich hoat tai khoan:</p>
+                    <p><a href="%s" target="_blank" style="display:inline-block;padding:10px 20px;background-color:#2563eb;color:#ffffff;text-decoration:none;border-radius:6px;">Kich hoat tai khoan</a></p>
+                    <p style="color:#6b7280;font-size:12px;">Hoac mo duong link: <a href="%s">%s</a></p>
+                    <p>Lien ket nay se het han sau mot khoang thoi gian gioi han. Neu ban khong yeu cau, vui long bo qua email nay.</p>
+                </body>
+                </html>
+                """.formatted(greeting, productName, activationLink, activationLink, activationLink);
+        send(toEmail, subject, plainText, html);
     }
 
     @Override
     public void sendSecurityAlertEmail(String toEmail, String fullName, String ipAddress) {
         String subject = productName + " - Canh bao dang nhap that bai nhieu lan";
         String greeting = fullName == null || fullName.isBlank() ? "Xin chao" : "Xin chao " + fullName;
+        String plainText = "%s,\n\nHe thong ghi nhan 5 lan dang nhap sai lien tiep vao tai khoan cua ban tu dia chi IP %s. Tai khoan cua ban da bi tam khoa trong 15 phut de bao ve an toan.\n\nNeu day khong phai la ban, vui long doi mat khau ngay sau khi tai khoan duoc mo lai va lien he quan tri vien."
+                .formatted(greeting, ipAddress == null ? "khong xac dinh" : ipAddress);
         String html = """
-                <p>%s,</p>
-                <p>He thong ghi nhan 5 lan dang nhap sai lien tiep vao tai khoan cua ban tu dia chi IP %s.
-                Tai khoan cua ban da bi tam khoa trong 15 phut de bao ve an toan.</p>
-                <p>Neu day khong phai la ban, vui long doi mat khau ngay sau khi tai khoan duoc mo lai
-                va lien he quan tri vien.</p>
+                <!DOCTYPE html>
+                <html>
+                <body>
+                    <p>%s,</p>
+                    <p>He thong ghi nhan 5 lan dang nhap sai lien tiep vao tai khoan cua ban tu dia chi IP %s. Tai khoan cua ban da bi tam khoa trong 15 phut de bao ve an toan.</p>
+                    <p>Neu day khong phai la ban, vui long doi mat khau ngay sau khi tai khoan duoc mo lai va lien he quan tri vien.</p>
+                </body>
+                </html>
                 """.formatted(greeting, ipAddress == null ? "khong xac dinh" : ipAddress);
-        send(toEmail, subject, html);
+        send(toEmail, subject, plainText, html);
     }
 
     @Override
     public void sendApplicationConfirmationEmail(String toEmail, String fullName, String jobTitle) {
         String subject = productName + " - Xac nhan da nhan ho so ung tuyen";
         String greeting = fullName == null || fullName.isBlank() ? "Xin chao" : "Xin chao " + fullName;
+        //todo chuyen ve html
         String html = """
                 <p>%s,</p>
                 <p>%s da nhan duoc ho so ung tuyen cua ban cho vi tri <strong>%s</strong>.</p>
@@ -77,14 +89,14 @@ public class EmailServiceImpl implements EmailService {
         send(toEmail, subject, html);
     }
 
-    private void send(String toEmail, String subject, String html) {
+    private void send(String toEmail, String subject, String plainText, String html) {
         try {
             MimeMessage message = mailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(message, false, "UTF-8");
+            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
             helper.setFrom(fromAddress);
             helper.setTo(toEmail);
             helper.setSubject(subject);
-            helper.setText(html, true);
+            helper.setText(plainText, html);
             mailSender.send(message);
             log.info("Sent email to {}: {}", LogMaskUtils.maskEmail(toEmail), subject);
         } catch (Exception e) {
