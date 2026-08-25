@@ -40,7 +40,11 @@ public enum ErrorCode {
 
     // UC-17 Applicant Intake (ME-22 in the SRS message catalogue)
     INVALID_CV_FILE("error.invalid_cv_file"),
-    PIPELINE_NOT_CONFIGURED("error.pipeline_not_configured");
+    PIPELINE_NOT_CONFIGURED("error.pipeline_not_configured"),
+
+    // UC-04 Pipeline Template & Stage configuration
+    PIPELINE_TEMPLATE_NOT_FOUND("error.pipeline_template_not_found"),
+    PIPELINE_STAGE_CODE_ALREADY_EXISTS("error.pipeline_stage_code_already_exists");
 
     private final String key;
 
