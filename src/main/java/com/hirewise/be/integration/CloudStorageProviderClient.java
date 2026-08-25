@@ -87,6 +87,9 @@ public interface CloudStorageProviderClient {
      * @param rootFolderId   the BR-STORAGE-03 root folder id/path, or
      *                       {@code null} if it was never created (the file
      *                       is then uploaded to the account root)
+     * @param subfolderName  the name of the subfolder inside the root folder
+     *                       (e.g., job title/id) to organize files into, or
+     *                       {@code null}/blank to upload directly to root
      * @param fileName       name to store the file under
      * @param mimeType       the file's content type, e.g. {@code "application/pdf"}
      * @param content        the raw file bytes
@@ -94,5 +97,5 @@ public interface CloudStorageProviderClient {
      *         {@code files.external_file_id})
      * @throws IntegrationConnectException if the upload fails (expired token, network error...)
      */
-    String uploadFile(String accessToken, String rootFolderId, String fileName, String mimeType, byte[] content);
+    String uploadFile(String accessToken, String rootFolderId, String subfolderName, String fileName, String mimeType, byte[] content);
 }

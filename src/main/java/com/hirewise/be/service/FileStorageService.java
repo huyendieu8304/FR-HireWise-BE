@@ -95,7 +95,7 @@ public class FileStorageService {
      * @return the persisted {@link StoredFile} metadata row
      */
     @Transactional
-    public StoredFile storeCv(MultipartFile file, String safeName) {
+    public StoredFile storeCv(MultipartFile file, String subfolderName, String safeName) {
         StorageConnection connection = storageConnectionRepository.findFirstByOrderByIdDesc()
                 .orElseThrow(() -> new IllegalStateException(
                         "No Cloud Storage connection exists - a job cannot be Published (BR-APR-03) without one configured via UC-07"));
@@ -106,21 +106,21 @@ public class FileStorageService {
 
         if (integrationConnection.getStatus() == ConnectionStatus.CONNECTED) {
             try {
-                return uploadToProvider(connection, file, safeName, content, checksum);
+                return uploadToProvider(connection, file, subfolderName, safeName, content, checksum);
             } catch (IntegrationConnectException e) {
                 log.warn("CV upload to {} failed even though the connection is CONNECTED - queueing locally "
                         + "per BR-STORAGE-02: {}", connection.getProvider(), e.getMessage());
-                return queueLocally(connection, file, safeName, content, checksum);
+                return queueLocally(connection, file, subfolderName, safeName, content, checksum);
             }
         }
 
         // EX-03: EXPIRED (or REVOKED) - hold the file locally rather than blocking the application.
         log.warn("Cloud Storage connection is {} - queueing CV locally per BR-STORAGE-02/EX-03",
                 integrationConnection.getStatus());
-        return queueLocally(connection, file, safeName, content, checksum);
+        return queueLocally(connection, file, subfolderName, safeName, content, checksum);
     }
 
-    private StoredFile uploadToProvider(StorageConnection connection, MultipartFile file, String safeName,
+    private StoredFile uploadToProvider(StorageConnection connection, MultipartFile file, String subfolderName, String safeName,
                                          byte[] content, String checksum) {
         OauthToken token = oauthTokenRepository.findByIntegrationConnection_Id(connection.getIntegrationConnection().getId())
                 .orElseThrow(() -> new IntegrationConnectException("No OAuth token stored for the current Cloud Storage connection"));
@@ -130,7 +130,7 @@ public class FileStorageService {
             throw new IllegalStateException("No CloudStorageProviderClient registered for provider " + connection.getProvider());
         }
 
-        String externalFileId = client.uploadFile(accessToken, connection.getRootFolderId(), safeName,
+        String externalFileId = client.uploadFile(accessToken, connection.getRootFolderId(), subfolderName, safeName,
                 file.getContentType(), content);
 
         Instant now = Instant.now(clock);
@@ -148,9 +148,11 @@ public class FileStorageService {
         return storedFileRepository.save(storedFile);
     }
 
-    private StoredFile queueLocally(StorageConnection connection, MultipartFile file, String safeName,
+    private StoredFile queueLocally(StorageConnection connection, MultipartFile file, String subfolderName, String safeName,
                                      byte[] content, String checksum) {
-        String localFileName = UUID.randomUUID() + "_" + safeName;
+        String prefix = (subfolderName != null && !subfolderName.isBlank()) ? 
+                subfolderName.replaceAll("[^a-zA-Z0-9 -]", "").trim() + "_" : "";
+        String localFileName = prefix + UUID.randomUUID() + "_" + safeName;
         try {
             Files.createDirectories(pendingUploadDir);
             Files.write(pendingUploadDir.resolve(localFileName), content);

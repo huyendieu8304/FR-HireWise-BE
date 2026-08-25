@@ -141,12 +141,13 @@ public class DropboxProviderClient implements CloudStorageProviderClient {
     }
 
     @Override
-    public String uploadFile(String accessToken, String rootFolderId, String fileName, String mimeType, byte[] content) {
+    public String uploadFile(String accessToken, String rootFolderId, String subfolderName, String fileName, String mimeType, byte[] content) {
         try {
             // Dropbox addresses files/folders by path, not by an opaque parent id -
             // rootFolderId here IS the BR-STORAGE-03 root folder path (see createRootFolder).
             String parentPath = rootFolderId != null ? rootFolderId : ROOT_FOLDER_PATH;
-            String targetPath = parentPath + "/" + sanitizeForPath(fileName);
+            String subfolderPath = subfolderName != null && !subfolderName.isBlank() ? "/" + sanitizeForPath(subfolderName) : "";
+            String targetPath = parentPath + subfolderPath + "/" + sanitizeForPath(fileName);
             // Dropbox-API-Arg carries call arguments as a JSON string in a header
             // (the body itself is the raw file content) - built by hand since it's
             // a single small, fully-controlled object.

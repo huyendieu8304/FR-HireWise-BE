@@ -105,14 +105,16 @@ public class JobApplicationService {
             log.warn("Blacklisted candidateId={} applied to jobId={}", candidate.getId(), job.getId());
         }
 
-        String safeFileName = buildSafeFileName(job, candidate, cvFile.getOriginalFilename());
-        StoredFile storedFile = fileStorageService.storeCv(cvFile, safeFileName);
-
         Optional<Application> existing = applicationRepository.findByCandidate_IdAndJobPosition_Id(candidate.getId(), job.getId());
         boolean duplicate = existing.isPresent();
         Application application = duplicate
                 ? updateExistingApplication(existing.get(), now)
                 : createNewApplication(candidate, job, now);
+
+        String safeFileName = buildSafeFileName(job, candidate, cvFile.getOriginalFilename());
+        String subfolderName = job.getId().toString() + "/" + application.getId().toString();
+        
+        StoredFile storedFile = fileStorageService.storeCv(cvFile, subfolderName, safeFileName);
 
         attachCvFile(application, storedFile, duplicate, now);
 
