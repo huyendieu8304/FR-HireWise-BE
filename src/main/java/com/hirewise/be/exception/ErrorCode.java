@@ -41,9 +41,13 @@ public enum ErrorCode {
     // UC-04 Pipeline Template & Stage configuration
     PIPELINE_TEMPLATE_NOT_FOUND("error.pipeline_template_not_found"),
     PIPELINE_STAGE_CODE_ALREADY_EXISTS("error.pipeline_stage_code_already_exists"),
+    PIPELINE_STAGE_NOT_FOUND("error.pipeline_stage_not_found"),
 
     // UC-05 Reorder Pipeline Stages
-    PIPELINE_STAGE_REORDER_MISMATCH("error.pipeline_stage_reorder_mismatch");
+    PIPELINE_STAGE_REORDER_MISMATCH("error.pipeline_stage_reorder_mismatch"),
+
+    // UC-06 Delete Pipeline Stage
+    PIPELINE_STAGE_HAS_APPLICATIONS("error.pipeline_stage_has_applications");
 
     private final String key;
 

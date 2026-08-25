@@ -25,6 +25,9 @@ public class PipelineStageResponseDto {
     private boolean terminal;
     private Integer slaHours;
     private boolean active;
+    /** UC-06: số Application đang có {@code current_stage_id} trỏ tới Stage này (BR-PIPE-03) - dùng để
+     *  FE quyết định có cho phép xóa/disable nút "Xác nhận xóa" hay không, không cần gọi thêm API riêng. */
+    private long applicationCount;
     private Instant createdAt;
     private Instant updatedAt;
 }

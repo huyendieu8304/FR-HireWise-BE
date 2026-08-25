@@ -35,11 +35,17 @@ public final class PipelineMapper {
 
     /**
      * Converts a {@link PipelineStage} entity into its response DTO.
+     * <p>
+     * {@code applicationCount} is not resolved here - the caller must
+     * already have looked it up (from {@code applications.current_stage_id})
+     * and pass it in, to keep this mapper limited to plain entity-to-DTO
+     * conversion (same convention as {@code UserMapper#toResponseDto}).
      *
-     * @param entity stage entity to convert
+     * @param entity           stage entity to convert
+     * @param applicationCount number of applications currently at this stage, resolved by the caller
      * @return the corresponding response DTO
      */
-    public static PipelineStageResponseDto toResponseDto(PipelineStage entity) {
+    public static PipelineStageResponseDto toResponseDto(PipelineStage entity, long applicationCount) {
         return PipelineStageResponseDto.builder()
                 .id(entity.getId())
                 .pipelineTemplateId(entity.getPipelineTemplate().getId())
@@ -50,6 +56,7 @@ public final class PipelineMapper {
                 .terminal(entity.isTerminal())
                 .slaHours(entity.getSlaHours())
                 .active(entity.isActive())
+                .applicationCount(applicationCount)
                 .createdAt(entity.getCreatedAt())
                 .updatedAt(entity.getUpdatedAt())
                 .build();

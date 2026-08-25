@@ -18,6 +18,7 @@ import com.hirewise.be.exception.BusinessConflictException;
 import com.hirewise.be.exception.ErrorCode;
 import com.hirewise.be.exception.ResourceNotFoundException;
 import com.hirewise.be.mapper.PipelineMapper;
+import com.hirewise.be.repository.ApplicationRepository;
 import com.hirewise.be.repository.DepartmentRepository;
 import com.hirewise.be.repository.PipelineStageRepository;
 import com.hirewise.be.repository.PipelineTemplateRepository;
@@ -39,10 +40,9 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * UC-04/UC-05: HR Admin configuration of the recruitment Pipeline
- * (Pipeline Template + Stage) - creating stages (UC-04) and reordering
- * them (UC-05). Deleting a stage (UC-06) is a separate use case and is
- * not implemented here.
+ * UC-04/UC-05/UC-06: HR Admin configuration of the recruitment Pipeline
+ * (Pipeline Template + Stage) - creating stages (UC-04), reordering them
+ * (UC-05), and deleting/soft-deleting a stage (UC-06).
  * <p>
  * A new template always starts in {@link PipelineTemplateStatus#DRAFT} -
  * BR-PIPE-01 (at least 2 stages, including one {@code TERMINAL_SUCCESS}
@@ -60,6 +60,7 @@ public class PipelineService {
     PipelineTemplateRepository pipelineTemplateRepository;
     PipelineStageRepository pipelineStageRepository;
     DepartmentRepository departmentRepository;
+    ApplicationRepository applicationRepository;
     AccessControlService accessControlService;
     Clock clock;
 
@@ -114,19 +115,20 @@ public class PipelineService {
 
     /**
      * UC-04 step 1: current stages of a template, in Kanban column order.
+     * Stages soft-deleted by UC-06 ({@code is_active = false}) are excluded.
      *
      * @param templateId  id of the pipeline template
      * @param currentUser authenticated caller, must have {@code PIPELINE_MANAGE}
-     * @return the template's stages ordered by position
+     * @return the template's active stages ordered by position
      * @throws ResourceNotFoundException if no template exists with {@code templateId}
      */
     public List<PipelineStageResponseDto> listStages(Long templateId, CurrentUser currentUser) {
         accessControlService.checkAccess(currentUser, PermissionCodes.PIPELINE_MANAGE, ResourceContext.none());
         findTemplateOrThrow(templateId);
 
-        return pipelineStageRepository.findByPipelineTemplate_IdOrderByPositionAsc(templateId).stream()
-                .map(PipelineMapper::toResponseDto)
-                .toList();
+        List<PipelineStage> stages =
+                pipelineStageRepository.findByPipelineTemplate_IdAndActiveTrueOrderByPositionAsc(templateId);
+        return toStageResponseDtos(stages);
     }
 
     /**
@@ -179,7 +181,8 @@ public class PipelineService {
 
         log.info("Created pipeline stage: {} (templateId={}, code={}, position={})",
                 stage.getId(), templateId, stage.getCode(), stage.getPosition());
-        return PipelineMapper.toResponseDto(stage);
+        // A brand-new stage can't have any Application pointing at it yet - no need to query.
+        return PipelineMapper.toResponseDto(stage, 0L);
     }
 
     /**
@@ -209,8 +212,9 @@ public class PipelineService {
         accessControlService.checkAccess(currentUser, PermissionCodes.PIPELINE_MANAGE,
                 ResourceContext.department(departmentId));
 
+        // Soft-deleted (UC-06) stages must never be reorderable - only ever offer the active set.
         List<PipelineStage> currentStages =
-                pipelineStageRepository.findByPipelineTemplate_IdOrderByPositionAsc(templateId);
+                pipelineStageRepository.findByPipelineTemplate_IdAndActiveTrueOrderByPositionAsc(templateId);
         Map<Long, PipelineStage> stageById =
                 currentStages.stream().collect(Collectors.toMap(PipelineStage::getId, Function.identity()));
         validateReorderSet(request.getStageIds(), stageById.keySet());
@@ -225,8 +229,77 @@ public class PipelineService {
         pipelineStageRepository.saveAll(currentStages);
 
         log.info("Reordered {} pipeline stages for templateId={}", currentStages.size(), templateId);
-        return orderedIds.stream()
-                .map(id -> PipelineMapper.toResponseDto(stageById.get(id)))
+        List<PipelineStage> reorderedStages = orderedIds.stream().map(stageById::get).toList();
+        return toStageResponseDtos(reorderedStages);
+    }
+
+    /**
+     * UC-06 main flow: soft-deletes a Stage (sets {@code is_active = false})
+     * and re-indexes the remaining active stages so {@code position} stays
+     * a contiguous ascending sequence (BR-PIPE-04). A hard delete is never
+     * used - the row must survive to keep {@code application_stage_history}
+     * intact even after the stage itself is retired (SRS "Other Information").
+     *
+     * @param templateId  id of the pipeline template the stage belongs to
+     * @param stageId     id of the stage to delete
+     * @param currentUser HR Admin performing the deletion
+     * @throws ResourceNotFoundException if no template exists with {@code templateId}, or no
+     *                                    stage with {@code stageId} exists within that template
+     * @throws BusinessConflictException if at least one Application currently has
+     *                                    {@code current_stage_id} pointing at this stage (EX-01, BR-PIPE-03)
+     */
+    @Transactional
+    public void deleteStage(Long templateId, Long stageId, CurrentUser currentUser) {
+        // Same reasoning as createStage/reorderStages: the stage has no department of its
+        // own, so the parent template must be loaded first to know the Layer 3 scope.
+        PipelineTemplate template = findTemplateOrThrow(templateId);
+        Long departmentId = template.getDepartment() != null ? template.getDepartment().getId() : null;
+        accessControlService.checkAccess(currentUser, PermissionCodes.PIPELINE_MANAGE,
+                ResourceContext.department(departmentId));
+
+        // Also require isActive() - an already soft-deleted stage must behave as "not found"
+        // for every operation (listStages already excludes it), including a second delete
+        // attempt, instead of silently "succeeding" again with a no-op re-deactivation.
+        PipelineStage stage = pipelineStageRepository.findById(stageId)
+                .filter(s -> s.getPipelineTemplate().getId().equals(templateId) && s.isActive())
+                .orElseThrow(() -> new ResourceNotFoundException(ErrorCode.PIPELINE_STAGE_NOT_FOUND, stageId));
+
+        // BR-PIPE-03/EX-01: block the delete outright if any Application still references this
+        // stage - checked BEFORE touching any row, so a rejected delete never partially applies.
+        long applicationCount = applicationRepository.countByCurrentStage_Id(stageId);
+        if (applicationCount > 0) {
+            throw new BusinessConflictException(ErrorCode.PIPELINE_STAGE_HAS_APPLICATIONS, applicationCount);
+        }
+
+        Instant now = Instant.now(clock);
+        stage.setActive(false);
+        stage.setUpdatedAt(now);
+        pipelineStageRepository.save(stage);
+
+        // BR-PIPE-04: closing the gap left behind - re-number the remaining active stages
+        // 1..N so position stays contiguous, in the SAME transaction as the soft-delete.
+        List<PipelineStage> remaining =
+                pipelineStageRepository.findByPipelineTemplate_IdAndActiveTrueOrderByPositionAsc(templateId);
+        for (int index = 0; index < remaining.size(); index++) {
+            remaining.get(index).setPosition(index + 1);
+            remaining.get(index).setUpdatedAt(now);
+        }
+        pipelineStageRepository.saveAll(remaining);
+
+        log.info("Soft-deleted pipeline stage: {} (templateId={}), re-indexed {} remaining stages",
+                stageId, templateId, remaining.size());
+    }
+
+    /**
+     * Maps stages to response DTOs, resolving each one's current
+     * {@code applicationCount} (BR-PIPE-03) along the way - kept here
+     * rather than in {@link PipelineMapper} because a Mapper must stay a
+     * pure entity-to-DTO conversion and must not itself query a repository.
+     */
+    private List<PipelineStageResponseDto> toStageResponseDtos(List<PipelineStage> stages) {
+        return stages.stream()
+                .map(stage -> PipelineMapper.toResponseDto(
+                        stage, applicationRepository.countByCurrentStage_Id(stage.getId())))
                 .toList();
     }
 

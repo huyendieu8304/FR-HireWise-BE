@@ -14,6 +14,7 @@ import lombok.AllArgsConstructor;
 import lombok.experimental.FieldDefaults;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -25,18 +26,19 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 
 /**
- * UC-04/UC-05: Pipeline Template + Stage configuration. Every endpoint
- * here requires {@code PIPELINE_MANAGE} (HR_ADMIN), enforced inside
- * {@link PipelineService} rather than duplicated as a role gate here (see
- * the {@code authorization} package).
+ * UC-04/UC-05/UC-06: Pipeline Template + Stage configuration. Every
+ * endpoint here requires {@code PIPELINE_MANAGE} (HR_ADMIN), enforced
+ * inside {@link PipelineService} rather than duplicated as a role gate
+ * here (see the {@code authorization} package).
  * <p>
  * RBAC per endpoint:
  * <ul>
- *   <li>{@code GET   /api/pipeline-templates}                             - {@code PIPELINE_MANAGE}</li>
- *   <li>{@code POST  /api/pipeline-templates}                             - {@code PIPELINE_MANAGE}</li>
- *   <li>{@code GET   /api/pipeline-templates/{templateId}/stages}         - {@code PIPELINE_MANAGE}</li>
- *   <li>{@code POST  /api/pipeline-templates/{templateId}/stages}         - {@code PIPELINE_MANAGE}</li>
- *   <li>{@code PATCH /api/pipeline-templates/{templateId}/stages/reorder} - {@code PIPELINE_MANAGE}</li>
+ *   <li>{@code GET    /api/pipeline-templates}                                 - {@code PIPELINE_MANAGE}</li>
+ *   <li>{@code POST   /api/pipeline-templates}                                 - {@code PIPELINE_MANAGE}</li>
+ *   <li>{@code GET    /api/pipeline-templates/{templateId}/stages}             - {@code PIPELINE_MANAGE}</li>
+ *   <li>{@code POST   /api/pipeline-templates/{templateId}/stages}             - {@code PIPELINE_MANAGE}</li>
+ *   <li>{@code PATCH  /api/pipeline-templates/{templateId}/stages/reorder}     - {@code PIPELINE_MANAGE}</li>
+ *   <li>{@code DELETE /api/pipeline-templates/{templateId}/stages/{stageId}}   - {@code PIPELINE_MANAGE}</li>
  * </ul>
  */
 @RestController
@@ -122,5 +124,23 @@ public class PipelineController {
             @Valid @RequestBody ReorderPipelineStagesRequestDto request,
             @CurrentUserPrincipal CurrentUser currentUser) {
         return ResponseEntity.ok(pipelineService.reorderStages(templateId, request, currentUser));
+    }
+
+    /**
+     * UC-06 main flow: soft-deletes a Stage (blocked if any Application
+     * still references it - EX-01/BR-PIPE-03). Requires {@code PIPELINE_MANAGE}.
+     *
+     * @param templateId  id of the pipeline template the stage belongs to
+     * @param stageId     id of the stage to delete
+     * @param currentUser authenticated caller, used for authorization and auditing
+     * @return 204 No Content on success
+     */
+    @DeleteMapping("/{templateId}/stages/{stageId}")
+    public ResponseEntity<Void> deleteStage(
+            @PathVariable Long templateId,
+            @PathVariable Long stageId,
+            @CurrentUserPrincipal CurrentUser currentUser) {
+        pipelineService.deleteStage(templateId, stageId, currentUser);
+        return ResponseEntity.noContent().build();
     }
 }

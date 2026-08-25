@@ -18,6 +18,7 @@ import com.hirewise.be.exception.BusinessConflictException;
 import com.hirewise.be.exception.ErrorCode;
 import com.hirewise.be.exception.PermissionDeniedException;
 import com.hirewise.be.exception.ResourceNotFoundException;
+import com.hirewise.be.repository.ApplicationRepository;
 import com.hirewise.be.repository.DepartmentRepository;
 import com.hirewise.be.repository.PipelineStageRepository;
 import com.hirewise.be.repository.PipelineTemplateRepository;
@@ -46,7 +47,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * UC-04: Pipeline Template + Stage creation.
+ * UC-04/UC-05/UC-06: Pipeline Template + Stage creation, reordering, and deletion.
  */
 @ExtendWith(MockitoExtension.class)
 class PipelineServiceTest {
@@ -62,6 +63,8 @@ class PipelineServiceTest {
     @Mock
     private DepartmentRepository departmentRepository;
     @Mock
+    private ApplicationRepository applicationRepository;
+    @Mock
     private AccessControlService accessControlService;
 
     private PipelineService pipelineService;
@@ -72,7 +75,7 @@ class PipelineServiceTest {
         Clock fixedClock = Clock.fixed(NOW, ZoneOffset.UTC);
         pipelineService = new PipelineService(
                 pipelineTemplateRepository, pipelineStageRepository, departmentRepository,
-                accessControlService, fixedClock);
+                applicationRepository, accessControlService, fixedClock);
         hrAdmin = new CurrentUser(1L, "admin@hirewise.com", "HR Admin", Set.of("HR_ADMIN"));
     }
 
@@ -162,7 +165,7 @@ class PipelineServiceTest {
                 .id(1L).pipelineTemplate(templateWithDepartment(null)).name("New").code("NEW")
                 .stageType(StageType.INTAKE).position(1).terminal(false).active(true)
                 .createdAt(NOW).updatedAt(NOW).build();
-        when(pipelineStageRepository.findByPipelineTemplate_IdOrderByPositionAsc(TEMPLATE_ID))
+        when(pipelineStageRepository.findByPipelineTemplate_IdAndActiveTrueOrderByPositionAsc(TEMPLATE_ID))
                 .thenReturn(List.of(stage));
 
         List<PipelineStageResponseDto> stages = pipelineService.listStages(TEMPLATE_ID, hrAdmin);
@@ -263,7 +266,7 @@ class PipelineServiceTest {
         PipelineStage stage2 = stage(2L, 2, template);
         PipelineStage stage3 = stage(3L, 3, template);
         when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.of(template));
-        when(pipelineStageRepository.findByPipelineTemplate_IdOrderByPositionAsc(TEMPLATE_ID))
+        when(pipelineStageRepository.findByPipelineTemplate_IdAndActiveTrueOrderByPositionAsc(TEMPLATE_ID))
                 .thenReturn(List.of(stage1, stage2, stage3));
         // HR Admin kéo Stage 3 lên đầu: thứ tự mới mong muốn là [3, 1, 2].
         ReorderPipelineStagesRequestDto request = new ReorderPipelineStagesRequestDto(List.of(3L, 1L, 2L));
@@ -284,7 +287,7 @@ class PipelineServiceTest {
         PipelineStage stage1 = stage(1L, 1, template);
         PipelineStage stage2 = stage(2L, 2, template);
         when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.of(template));
-        when(pipelineStageRepository.findByPipelineTemplate_IdOrderByPositionAsc(TEMPLATE_ID))
+        when(pipelineStageRepository.findByPipelineTemplate_IdAndActiveTrueOrderByPositionAsc(TEMPLATE_ID))
                 .thenReturn(List.of(stage1, stage2));
         // Thiếu stage id 2L trong danh sách gửi lên -> phải chặn, không được âm thầm bỏ rơi 1 stage.
         ReorderPipelineStagesRequestDto request = new ReorderPipelineStagesRequestDto(List.of(1L));
@@ -301,7 +304,7 @@ class PipelineServiceTest {
         PipelineStage stage1 = stage(1L, 1, template);
         PipelineStage stage2 = stage(2L, 2, template);
         when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.of(template));
-        when(pipelineStageRepository.findByPipelineTemplate_IdOrderByPositionAsc(TEMPLATE_ID))
+        when(pipelineStageRepository.findByPipelineTemplate_IdAndActiveTrueOrderByPositionAsc(TEMPLATE_ID))
                 .thenReturn(List.of(stage1, stage2));
         // 999L không thuộc Template này (vd thuộc Template khác) -> phải chặn.
         ReorderPipelineStagesRequestDto request = new ReorderPipelineStagesRequestDto(List.of(1L, 999L));
@@ -318,7 +321,7 @@ class PipelineServiceTest {
         PipelineStage stage1 = stage(1L, 1, template);
         PipelineStage stage2 = stage(2L, 2, template);
         when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.of(template));
-        when(pipelineStageRepository.findByPipelineTemplate_IdOrderByPositionAsc(TEMPLATE_ID))
+        when(pipelineStageRepository.findByPipelineTemplate_IdAndActiveTrueOrderByPositionAsc(TEMPLATE_ID))
                 .thenReturn(List.of(stage1, stage2));
         // 1L bị lặp lại, đồng nghĩa 2L bị rơi ra khỏi danh sách dù size trùng khớp ngẫu nhiên.
         ReorderPipelineStagesRequestDto request = new ReorderPipelineStagesRequestDto(List.of(1L, 1L));
@@ -335,11 +338,106 @@ class PipelineServiceTest {
         PipelineStage stage1 = stage(1L, 1, template);
         PipelineStage stage2 = stage(2L, 2, template);
         when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.of(template));
-        when(pipelineStageRepository.findByPipelineTemplate_IdOrderByPositionAsc(TEMPLATE_ID))
+        when(pipelineStageRepository.findByPipelineTemplate_IdAndActiveTrueOrderByPositionAsc(TEMPLATE_ID))
                 .thenReturn(List.of(stage1, stage2));
         ReorderPipelineStagesRequestDto request = new ReorderPipelineStagesRequestDto(List.of(2L, 1L));
 
         pipelineService.reorderStages(TEMPLATE_ID, request, hrAdmin);
+
+        verify(accessControlService).checkAccess(hrAdmin, PermissionCodes.PIPELINE_MANAGE,
+                ResourceContext.department(DEPARTMENT_ID));
+    }
+
+    @Test
+    void deleteStage_unknownTemplate_throwsResourceNotFound() {
+        when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> pipelineService.deleteStage(TEMPLATE_ID, 1L, hrAdmin))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.PIPELINE_TEMPLATE_NOT_FOUND);
+        verify(accessControlService, never()).checkAccess(any(), any(), any());
+    }
+
+    @Test
+    void deleteStage_stageBelongsToAnotherTemplate_throwsResourceNotFound() {
+        PipelineTemplate template = templateWithDepartment(null);
+        PipelineTemplate otherTemplate = PipelineTemplate.builder().id(99L).name("Other")
+                .status(PipelineTemplateStatus.DRAFT).createdAt(NOW).updatedAt(NOW).build();
+        PipelineStage stageOfOtherTemplate = stage(1L, 1, otherTemplate);
+        when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.of(template));
+        when(pipelineStageRepository.findById(1L)).thenReturn(Optional.of(stageOfOtherTemplate));
+
+        assertThatThrownBy(() -> pipelineService.deleteStage(TEMPLATE_ID, 1L, hrAdmin))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.PIPELINE_STAGE_NOT_FOUND);
+        verify(pipelineStageRepository, never()).save(any());
+    }
+
+    @Test
+    void deleteStage_alreadyInactive_throwsResourceNotFound() {
+        PipelineTemplate template = templateWithDepartment(null);
+        PipelineStage alreadyDeletedStage = PipelineStage.builder()
+                .id(2L).pipelineTemplate(template).name("Hired").code("HIRED")
+                .stageType(StageType.TERMINAL_SUCCESS).position(2).terminal(true).active(false)
+                .createdAt(NOW).updatedAt(NOW).build();
+        when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.of(template));
+        when(pipelineStageRepository.findById(2L)).thenReturn(Optional.of(alreadyDeletedStage));
+
+        // Xóa lại 1 Stage ĐÃ bị soft-delete từ trước phải báo "không tìm thấy", không được
+        // âm thầm "thành công" lần 2 (findById không tự lọc active, phải lọc thủ công).
+        assertThatThrownBy(() -> pipelineService.deleteStage(TEMPLATE_ID, 2L, hrAdmin))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.PIPELINE_STAGE_NOT_FOUND);
+        verify(applicationRepository, never()).countByCurrentStage_Id(any());
+        verify(pipelineStageRepository, never()).save(any());
+    }
+
+    @Test
+    void deleteStage_hasApplications_throwsBusinessConflict_EX01() {
+        PipelineTemplate template = templateWithDepartment(null);
+        PipelineStage stage1 = stage(1L, 1, template);
+        when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.of(template));
+        when(pipelineStageRepository.findById(1L)).thenReturn(Optional.of(stage1));
+        when(applicationRepository.countByCurrentStage_Id(1L)).thenReturn(3L);
+
+        assertThatThrownBy(() -> pipelineService.deleteStage(TEMPLATE_ID, 1L, hrAdmin))
+                .isInstanceOf(BusinessConflictException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.PIPELINE_STAGE_HAS_APPLICATIONS);
+        verify(pipelineStageRepository, never()).save(any());
+    }
+
+    @Test
+    void deleteStage_noApplications_softDeletesAndReindexesRemaining_BR_PIPE_04() {
+        PipelineTemplate template = templateWithDepartment(null);
+        PipelineStage stage1 = stage(1L, 1, template);
+        PipelineStage stage2 = stage(2L, 2, template);
+        PipelineStage stage3 = stage(3L, 3, template);
+        when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.of(template));
+        // Xóa stage2 (position=2, ở giữa) -> stage3 phải được re-index về position=2 (không để hở 1,3).
+        when(pipelineStageRepository.findById(2L)).thenReturn(Optional.of(stage2));
+        when(applicationRepository.countByCurrentStage_Id(2L)).thenReturn(0L);
+        when(pipelineStageRepository.findByPipelineTemplate_IdAndActiveTrueOrderByPositionAsc(TEMPLATE_ID))
+                .thenReturn(List.of(stage1, stage3));
+
+        pipelineService.deleteStage(TEMPLATE_ID, 2L, hrAdmin);
+
+        assertThat(stage2.isActive()).isFalse();
+        assertThat(stage1.getPosition()).isEqualTo(1);
+        assertThat(stage3.getPosition()).isEqualTo(2);
+        verify(pipelineStageRepository).save(stage2);
+        verify(pipelineStageRepository).saveAll(List.of(stage1, stage3));
+    }
+
+    @Test
+    void deleteStage_departmentScopedTemplate_checksAccessWithTemplateDepartment() {
+        PipelineTemplate template = templateWithDepartment(DEPARTMENT_ID);
+        PipelineStage stage1 = stage(1L, 1, template);
+        when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.of(template));
+        when(pipelineStageRepository.findById(1L)).thenReturn(Optional.of(stage1));
+        when(pipelineStageRepository.findByPipelineTemplate_IdAndActiveTrueOrderByPositionAsc(TEMPLATE_ID))
+                .thenReturn(List.of());
+
+        pipelineService.deleteStage(TEMPLATE_ID, 1L, hrAdmin);
 
         verify(accessControlService).checkAccess(hrAdmin, PermissionCodes.PIPELINE_MANAGE,
                 ResourceContext.department(DEPARTMENT_ID));

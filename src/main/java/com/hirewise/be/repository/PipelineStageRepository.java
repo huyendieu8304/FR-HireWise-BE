@@ -21,6 +21,17 @@ public interface PipelineStageRepository extends JpaRepository<PipelineStage, Lo
     List<PipelineStage> findByPipelineTemplate_IdOrderByPositionAsc(Long templateId);
 
     /**
+     * UC-04/UC-05 step 1: stages actually shown/reorderable on the Kanban
+     * board - excludes stages soft-deleted by UC-06 ({@code is_active = false}),
+     * which are kept in the database (for {@code application_stage_history}
+     * integrity) but must never resurface in the UI or be reorderable.
+     *
+     * @param templateId id of the parent pipeline template
+     * @return active stages ordered by {@code position} ascending
+     */
+    List<PipelineStage> findByPipelineTemplate_IdAndActiveTrueOrderByPositionAsc(Long templateId);
+
+    /**
      * BR-PIPE-02: whether {@code code} is already used by another stage in
      * the same template - checked before insert so a duplicate is reported
      * as a clean 409 (EX-01) rather than a raw unique-constraint violation.
