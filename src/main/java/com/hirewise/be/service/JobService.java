@@ -57,19 +57,25 @@ public class JobService {
 
     /**
      * Lists every Job Position visible to the caller (any status), with
-     * optional department/status filters from the UI.
+     * optional department/status/keyword filters from the UI — the keyword
+     * filter backs the "Vị trí tuyển dụng" search box (case-insensitive
+     * substring match on the job title), shared by HR Admin, Recruiter,
+     * Hiring Manager and (since V26) Interviewer.
      *
      * @param currentUser  authenticated caller, must have {@code JOB_VIEW}
      * @param departmentId optional department filter
      * @param status       optional status filter
+     * @param keyword      optional search box text — matched against the job title
      * @param pageable     pagination and sort (default: createdAt desc)
      * @return paginated list of job summaries within the caller's Access Scope
      */
     @Transactional(readOnly = true)
     public PagedResponseDto<JobSummaryResponseDto> listJobs(
-            CurrentUser currentUser, Long departmentId, JobStatus status, Pageable pageable) {
+            CurrentUser currentUser, Long departmentId, JobStatus status, String keyword, Pageable pageable) {
 
         accessControlService.checkAccess(currentUser, PermissionCodes.JOB_VIEW, ResourceContext.none());
+
+        String normalizedKeyword = (keyword == null || keyword.isBlank()) ? "" : keyword.trim();
 
         Instant now = Instant.now(clock);
         List<UserAccessScope> activeScopes = userAccessScopeRepository.findActiveScopes(currentUser.userId(), now);
@@ -77,7 +83,7 @@ public class JobService {
 
         Page<JobPosition> jobPage;
         if (hasSystemScope) {
-            jobPage = jobPositionRepository.searchAllJobs(departmentId, status, pageable);
+            jobPage = jobPositionRepository.searchAllJobs(departmentId, status, normalizedKeyword, pageable);
         } else {
             List<Long> allowedDepartmentIds = resolveDepartmentIds(activeScopes);
             if (allowedDepartmentIds.isEmpty()) {
@@ -92,7 +98,8 @@ public class JobService {
                         .last(true)
                         .build();
             }
-            jobPage = jobPositionRepository.searchJobsInDepartments(allowedDepartmentIds, departmentId, status, pageable);
+            jobPage = jobPositionRepository.searchJobsInDepartments(
+                    allowedDepartmentIds, departmentId, status, normalizedKeyword, pageable);
         }
 
         List<JobSummaryResponseDto> content = jobPage.getContent().stream()

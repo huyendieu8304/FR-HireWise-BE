@@ -112,7 +112,7 @@ public interface JobPositionRepository extends JpaRepository<JobPosition, UUID> 
     /**
      * "Vị trí tuyển dụng" internal list ({@code JOB_VIEW}): every Job Position
      * in one of the caller's in-scope departments, with optional extra
-     * department/status filters from the UI (BOTH are additionally
+     * department/status/keyword filters from the UI (all are additionally
      * intersected with {@code allowedDepartmentIds} - a caller can never
      * see a department outside their own Access Scope just by passing a
      * {@code departmentId} query param).
@@ -120,6 +120,7 @@ public interface JobPositionRepository extends JpaRepository<JobPosition, UUID> 
      * @param allowedDepartmentIds department ids the caller is scoped to (BR-RBAC-01)
      * @param departmentId         optional UI filter - narrows further within the caller's scope
      * @param status               optional UI filter - any {@link JobStatus}, not just approval-related ones
+     * @param keyword              optional case-insensitive substring match on the job title (search box)
      * @param pageable             pagination and sort parameters
      * @return page of matching jobs within the caller's scope
      */
@@ -131,19 +132,22 @@ public interface JobPositionRepository extends JpaRepository<JobPosition, UUID> 
             WHERE j.department.id IN :allowedDepartmentIds
               AND (:departmentId IS NULL OR j.department.id = :departmentId)
               AND (:status IS NULL OR j.status = :status)
+              AND (:keyword = '' OR LOWER(j.title) LIKE LOWER(CONCAT('%', :keyword, '%')))
             """)
     Page<JobPosition> searchJobsInDepartments(
             @Param("allowedDepartmentIds") java.util.List<Long> allowedDepartmentIds,
             @Param("departmentId") Long departmentId,
             @Param("status") JobStatus status,
+            @Param("keyword") String keyword,
             Pageable pageable);
 
     /**
      * "Vị trí tuyển dụng" internal list (SYSTEM scope variant): every Job
-     * Position system-wide, with optional department/status filters.
+     * Position system-wide, with optional department/status/keyword filters.
      *
      * @param departmentId optional UI filter
      * @param status       optional UI filter
+     * @param keyword      optional case-insensitive substring match on the job title (search box)
      * @param pageable     pagination and sort parameters
      * @return page of matching jobs
      */
@@ -154,10 +158,12 @@ public interface JobPositionRepository extends JpaRepository<JobPosition, UUID> 
             LEFT JOIN FETCH j.pipelineTemplate
             WHERE (:departmentId IS NULL OR j.department.id = :departmentId)
               AND (:status IS NULL OR j.status = :status)
+              AND (:keyword = '' OR LOWER(j.title) LIKE LOWER(CONCAT('%', :keyword, '%')))
             """)
     Page<JobPosition> searchAllJobs(
             @Param("departmentId") Long departmentId,
             @Param("status") JobStatus status,
+            @Param("keyword") String keyword,
             Pageable pageable);
 }
 

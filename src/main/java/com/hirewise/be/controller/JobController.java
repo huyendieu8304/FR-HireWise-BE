@@ -30,7 +30,7 @@ import java.util.UUID;
  * <p>
  * RBAC per endpoint:
  * <ul>
- *   <li>{@code GET /api/jobs}          - {@code JOB_VIEW}, scoped to the caller's departments</li>
+ *   <li>{@code GET /api/jobs}          - {@code JOB_VIEW}, scoped to the caller's departments; supports {@code keyword} search on title</li>
  *   <li>{@code GET /api/jobs/{jobId}}  - {@code JOB_VIEW}, scoped to the job's department</li>
  * </ul>
  */
@@ -44,10 +44,12 @@ public class JobController {
 
     /**
      * Lists every Job Position visible to the caller, with optional
-     * department/status filters.
+     * department/status filters and a free-text search box (matched
+     * against the job title).
      *
      * @param departmentId optional department filter
      * @param status       optional status filter
+     * @param keyword      optional search box text — matched against the job title
      * @param page         zero-based page index
      * @param size         page size
      * @param currentUser  authenticated caller, used for authorization
@@ -57,11 +59,12 @@ public class JobController {
     public ResponseEntity<PagedResponseDto<JobSummaryResponseDto>> list(
             @RequestParam(required = false) Long departmentId,
             @RequestParam(required = false) JobStatus status,
+            @RequestParam(required = false) String keyword,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             @CurrentUserPrincipal CurrentUser currentUser) {
         Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
-        return ResponseEntity.ok(jobService.listJobs(currentUser, departmentId, status, pageable));
+        return ResponseEntity.ok(jobService.listJobs(currentUser, departmentId, status, keyword, pageable));
     }
 
     /**
