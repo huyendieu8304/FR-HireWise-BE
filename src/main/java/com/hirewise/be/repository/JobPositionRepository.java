@@ -108,5 +108,56 @@ public interface JobPositionRepository extends JpaRepository<JobPosition, UUID> 
     Page<JobPosition> findAllApprovalJobs(
             @Param("status") JobStatus status,
             Pageable pageable);
+
+    /**
+     * "Vị trí tuyển dụng" internal list ({@code JOB_VIEW}): every Job Position
+     * in one of the caller's in-scope departments, with optional extra
+     * department/status filters from the UI (BOTH are additionally
+     * intersected with {@code allowedDepartmentIds} - a caller can never
+     * see a department outside their own Access Scope just by passing a
+     * {@code departmentId} query param).
+     *
+     * @param allowedDepartmentIds department ids the caller is scoped to (BR-RBAC-01)
+     * @param departmentId         optional UI filter - narrows further within the caller's scope
+     * @param status               optional UI filter - any {@link JobStatus}, not just approval-related ones
+     * @param pageable             pagination and sort parameters
+     * @return page of matching jobs within the caller's scope
+     */
+    @Query("""
+            SELECT DISTINCT j FROM JobPosition j
+            LEFT JOIN FETCH j.department
+            LEFT JOIN FETCH j.recruiter
+            LEFT JOIN FETCH j.pipelineTemplate
+            WHERE j.department.id IN :allowedDepartmentIds
+              AND (:departmentId IS NULL OR j.department.id = :departmentId)
+              AND (:status IS NULL OR j.status = :status)
+            """)
+    Page<JobPosition> searchJobsInDepartments(
+            @Param("allowedDepartmentIds") java.util.List<Long> allowedDepartmentIds,
+            @Param("departmentId") Long departmentId,
+            @Param("status") JobStatus status,
+            Pageable pageable);
+
+    /**
+     * "Vị trí tuyển dụng" internal list (SYSTEM scope variant): every Job
+     * Position system-wide, with optional department/status filters.
+     *
+     * @param departmentId optional UI filter
+     * @param status       optional UI filter
+     * @param pageable     pagination and sort parameters
+     * @return page of matching jobs
+     */
+    @Query("""
+            SELECT DISTINCT j FROM JobPosition j
+            LEFT JOIN FETCH j.department
+            LEFT JOIN FETCH j.recruiter
+            LEFT JOIN FETCH j.pipelineTemplate
+            WHERE (:departmentId IS NULL OR j.department.id = :departmentId)
+              AND (:status IS NULL OR j.status = :status)
+            """)
+    Page<JobPosition> searchAllJobs(
+            @Param("departmentId") Long departmentId,
+            @Param("status") JobStatus status,
+            Pageable pageable);
 }
 
