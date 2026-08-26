@@ -66,6 +66,11 @@ public enum ErrorCode {
     PIPELINE_STAGE_INACTIVE("error.pipeline_stage_inactive"),
     INVALID_STAGE_TRANSITION("error.invalid_stage_transition"),
 
+    // UC-12 Draft/edit a Job Position (BR-JOB-02/03/04, ME-19/ME-20)
+    JOB_SALARY_RANGE_INVALID("error.job_salary_range_invalid"),
+    JOB_DEADLINE_IN_PAST("error.job_deadline_in_past"),
+    JOB_POSITION_NOT_EDITABLE("error.job_position_not_editable"),
+
     ;
 
     private final String key;
