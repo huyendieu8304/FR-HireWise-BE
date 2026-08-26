@@ -29,4 +29,13 @@ public interface EmailService {
      */
     void sendJobApprovalDecisionEmail(String toEmail, String recruiterName,
                                       String jobTitle, boolean approved, String reason);
+
+    /**
+     * Sends an email dynamically using a registered {@code EmailTemplate} by code (e.g. EM-01..EM-13).
+     *
+     * @param toEmail      recipient's email address
+     * @param templateCode template code in {@code email_templates} table (e.g. EM-01, EM-02, ...)
+     * @param variables    placeholder variables mapped to values (e.g. Candidate_Name -> "Nguyen Van A")
+     */
+    void sendTemplateEmail(String toEmail, String templateCode, java.util.Map<String, String> variables);
 }
