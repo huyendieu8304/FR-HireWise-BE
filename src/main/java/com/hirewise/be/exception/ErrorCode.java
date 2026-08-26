@@ -56,7 +56,17 @@ public enum ErrorCode {
     // UC-09 Email Template management (BR-EMAILTPL-01/03/ME-15)
     EMAIL_TEMPLATE_NOT_FOUND("error.email_template_not_found"),
     EMAIL_TEMPLATE_CODE_DUPLICATE("error.email_template_code_duplicate"),
-    EMAIL_TEMPLATE_STAGE_CONFLICT("error.email_template_stage_conflict");
+    EMAIL_TEMPLATE_STAGE_CONFLICT("error.email_template_stage_conflict"),
+
+    // UC-22 Kanban Board
+    APPLICATION_NOT_FOUND("error.application_not_found"),
+
+    // UC-23 Move Application Stage (BR-KANBAN-01/03)
+    APPLICATION_STAGE_TERMINAL("error.application_stage_terminal"),
+    PIPELINE_STAGE_INACTIVE("error.pipeline_stage_inactive"),
+    INVALID_STAGE_TRANSITION("error.invalid_stage_transition"),
+
+    ;
 
     private final String key;
 
