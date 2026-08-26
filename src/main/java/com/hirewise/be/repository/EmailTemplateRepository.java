@@ -21,6 +21,12 @@ public interface EmailTemplateRepository extends JpaRepository<EmailTemplate, Lo
      */
     boolean existsByCodeAndIdNot(String code, Long id);
 
+    /** Finds template by code (e.g. EM-01). */
+    java.util.Optional<EmailTemplate> findByCode(String code);
+
+    /** Finds template by code and status. */
+    java.util.Optional<EmailTemplate> findByCodeAndStatus(String code, EmailTemplateStatus status);
+
     /** Returns templates linked to the given stage id (used during delete validation). */
     List<EmailTemplate> findByPipelineStageId(Long pipelineStageId);
 
