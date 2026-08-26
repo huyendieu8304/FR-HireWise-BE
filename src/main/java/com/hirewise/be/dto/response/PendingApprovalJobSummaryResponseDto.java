@@ -58,4 +58,11 @@ public class PendingApprovalJobSummaryResponseDto {
      * cycle.
      */
     private Instant submittedAt;
+
+    /** Trạng thái hiện tại của job position (PENDING_APPROVAL, APPROVED, REJECTED...). */
+    private com.hirewise.be.domain.JobStatus status;
+
+    /** Tên quy trình tuyển dụng (Pipeline Template) được gán cho job. */
+    private String pipelineTemplateName;
 }
+

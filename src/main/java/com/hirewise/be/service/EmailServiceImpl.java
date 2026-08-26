@@ -97,6 +97,50 @@ public class EmailServiceImpl implements EmailService {
         send(toEmail, subject, plainText, html);
     }
 
+    @Override
+    public void sendJobApprovalDecisionEmail(String toEmail, String recruiterName,
+                                              String jobTitle, boolean approved, String reason) {
+        String greeting = recruiterName == null || recruiterName.isBlank()
+                ? "Xin chao" : "Xin chao " + recruiterName;
+        String decisionVi = approved ? "DA DUOC PHE DUYET" : "DA BI TU CHOI";
+        String subject = productName + " - Vi tri \"" + jobTitle + "\" " + decisionVi;
+
+        String plainText;
+        String html;
+        if (approved) {
+            plainText = "%s,\n\nVi tri tuyen dung \"%s\" cua ban da duoc Hiring Manager phe duyet thanh cong.\n\nHay tien hanh cong bo vi tri nay len trang tuyen dung cong khai (UC-16).\n\nTran trong,\n%s"
+                    .formatted(greeting, jobTitle, productName);
+            html = """
+                    <!DOCTYPE html>
+                    <html>
+                    <body>
+                        <p>%s,</p>
+                        <p>Vi tri tuyen dung <strong>%s</strong> cua ban da duoc Hiring Manager <span style="color:#16a34a;font-weight:bold;">phe duyet</span> thanh cong.</p>
+                        <p>Hay tien hanh cong bo vi tri nay len trang tuyen dung cong khai.</p>
+                        <p style="color:#6b7280;font-size:12px;">%s</p>
+                    </body>
+                    </html>
+                    """.formatted(greeting, jobTitle, productName);
+        } else {
+            String reasonText = reason == null || reason.isBlank() ? "(Khong co ly do)" : reason;
+            plainText = "%s,\n\nRat tiec, vi tri tuyen dung \"%s\" cua ban da bi Hiring Manager tu choi.\n\nLy do: %s\n\nVui long chinh sua va gui lai de xem xet.\n\nTran trong,\n%s"
+                    .formatted(greeting, jobTitle, reasonText, productName);
+            html = """
+                    <!DOCTYPE html>
+                    <html>
+                    <body>
+                        <p>%s,</p>
+                        <p>Rat tiec, vi tri tuyen dung <strong>%s</strong> cua ban da bi Hiring Manager <span style="color:#dc2626;font-weight:bold;">tu choi</span>.</p>
+                        <p><strong>Ly do:</strong> %s</p>
+                        <p>Vui long chinh sua theo phan hoi va gui lai de duoc xem xet.</p>
+                        <p style="color:#6b7280;font-size:12px;">%s</p>
+                    </body>
+                    </html>
+                    """.formatted(greeting, jobTitle, reasonText, productName);
+        }
+        send(toEmail, subject, plainText, html);
+    }
+
     private void send(String toEmail, String subject, String plainText, String html) {
         try {
             MimeMessage message = mailSender.createMimeMessage();
