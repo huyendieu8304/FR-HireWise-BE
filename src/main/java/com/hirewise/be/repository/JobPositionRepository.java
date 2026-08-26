@@ -69,45 +69,44 @@ public interface JobPositionRepository extends JpaRepository<JobPosition, UUID> 
     java.util.List<Long> findDistinctDepartmentIdsWithPublishedJobs();
 
     /**
-     * UC-14 normal flow step 2: returns all PENDING_APPROVAL job positions
-     * whose owning department is within the calling Hiring Manager's access
-     * scope (BR-APR-01, BR-RBAC-01).
-     *
-     * <p>Uses JOIN FETCH on {@code department} and {@code recruiter} to load
-     * the related entities in the same query and prevent N+1 selects when the
-     * service maps each row to a {@code PendingApprovalJobSummaryResponseDto}.
+     * UC-14: returns job positions whose owning department is within the calling
+     * Hiring Manager's access scope (BR-APR-01, BR-RBAC-01), with optional status filter.
+     * If status is null, returns all approval-relevant jobs (PENDING_APPROVAL, APPROVED, REJECTED, etc.).
      *
      * @param allowedDepartmentIds department ids the manager is scoped to
-     *                             (already expanded with sub-departments by the
-     *                             service before calling this method)
+     * @param status               optional status filter (null = all approval statuses)
      * @param pageable             pagination and sort parameters
-     * @return page of PENDING_APPROVAL jobs within the manager's scope,
-     *         ordered by submission time (createdAt desc)
+     * @return page of matching jobs within the manager's scope
      */
     @Query("""
             SELECT DISTINCT j FROM JobPosition j
             LEFT JOIN FETCH j.department
             LEFT JOIN FETCH j.recruiter
-            WHERE j.status = com.hirewise.be.domain.JobStatus.PENDING_APPROVAL
+            LEFT JOIN FETCH j.pipelineTemplate
+            WHERE (:status IS NULL OR j.status = :status)
               AND j.department.id IN :allowedDepartmentIds
             """)
-    Page<JobPosition> findPendingApprovalInDepartments(
+    Page<JobPosition> findApprovalJobsInDepartments(
             @Param("allowedDepartmentIds") java.util.List<Long> allowedDepartmentIds,
+            @Param("status") JobStatus status,
             Pageable pageable);
 
     /**
-     * UC-14 (SYSTEM scope variant): Hiring Managers with a SYSTEM-wide access
-     * scope (e.g. HR Admin acting as approver) see every PENDING_APPROVAL job,
-     * regardless of department.
+     * UC-14 (SYSTEM scope variant): Hiring Managers with SYSTEM-wide access scope.
      *
+     * @param status   optional status filter
      * @param pageable pagination and sort parameters
-     * @return page of all PENDING_APPROVAL jobs
+     * @return page of all matching jobs
      */
     @Query("""
             SELECT DISTINCT j FROM JobPosition j
             LEFT JOIN FETCH j.department
             LEFT JOIN FETCH j.recruiter
-            WHERE j.status = com.hirewise.be.domain.JobStatus.PENDING_APPROVAL
+            LEFT JOIN FETCH j.pipelineTemplate
+            WHERE (:status IS NULL OR j.status = :status)
             """)
-    Page<JobPosition> findAllPendingApproval(Pageable pageable);
+    Page<JobPosition> findAllApprovalJobs(
+            @Param("status") JobStatus status,
+            Pageable pageable);
 }
+

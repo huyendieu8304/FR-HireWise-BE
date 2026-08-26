@@ -76,6 +76,12 @@ public class OutboxDispatcher {
                         requireField(payload, "email", event.getEventType()),
                         payload.path("fullName").asText(null),
                         requireField(payload, "jobTitle", event.getEventType()));
+                case JOB_APPROVAL_DECISION_EMAIL -> emailService.sendJobApprovalDecisionEmail(
+                        requireField(payload, "email", event.getEventType()),
+                        payload.path("recruiterName").asText(null),
+                        requireField(payload, "jobTitle", event.getEventType()),
+                        payload.path("approved").asBoolean(false),
+                        payload.path("reason").asText(null));
             }
             event.setStatus(OutboxEventStatus.SENT);
             event.setProcessedAt(Instant.now(clock));

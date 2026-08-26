@@ -16,4 +16,17 @@ public interface EmailService {
 
     /** EM-04 (UC-17 step 7): confirms a candidate's application to {@code jobTitle} was received. */
     void sendApplicationConfirmationEmail(String toEmail, String fullName, String jobTitle);
+
+    /**
+     * EM-03 (UC-15 step 3 / AF-01 step 4): notifies the Recruiter of the Hiring Manager's
+     * Approve or Reject decision on their job position.
+     *
+     * @param toEmail       recruiter's email address
+     * @param recruiterName recruiter's full name
+     * @param jobTitle      title of the job that was decided on
+     * @param approved      {@code true} = Approved, {@code false} = Rejected
+     * @param reason        rejection reason; may be null/blank when {@code approved=true}
+     */
+    void sendJobApprovalDecisionEmail(String toEmail, String recruiterName,
+                                      String jobTitle, boolean approved, String reason);
 }
