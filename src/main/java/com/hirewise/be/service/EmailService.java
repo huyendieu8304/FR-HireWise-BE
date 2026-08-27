@@ -31,14 +31,11 @@ public interface EmailService {
                                       String jobTitle, boolean approved, String reason);
 
     /**
-     * EM-02 (UC-13 step 5): notifies a Hiring Manager that a Job Position was
-     * submitted for approval and needs their review.
+     * Sends an email dynamically using a registered {@code EmailTemplate} by code (e.g. EM-01..EM-13).
      *
-     * @param toEmail           Hiring Manager's email address
-     * @param hiringManagerName Hiring Manager's full name
-     * @param jobTitle          title of the job position submitted for approval
-     * @param recruiterName     full name of the Recruiter who submitted it
+     * @param toEmail      recipient's email address
+     * @param templateCode template code in {@code email_templates} table (e.g. EM-01, EM-02, ...)
+     * @param variables    placeholder variables mapped to values (e.g. Candidate_Name -> "Nguyen Van A")
      */
-    void sendJobSubmittedForApprovalEmail(String toEmail, String hiringManagerName,
-                                          String jobTitle, String recruiterName);
+    void sendTemplateEmail(String toEmail, String templateCode, java.util.Map<String, String> variables);
 }

@@ -41,7 +41,7 @@ public class TemplateVariableValidator implements ConstraintValidator<ValidTempl
             "Decision", "Applied_At", "Reject_Reason_Block",
             "Custom_Message_Block", "Channel_Status_List", "Breach_List",
             // SLA / He thong
-            "n", "Stage_Name"
+            "n", "Stage_Name", "IP_Address"
     );
 
     /** Matches {{ any content that is not a closing brace }} */
