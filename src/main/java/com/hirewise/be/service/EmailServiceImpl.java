@@ -166,30 +166,6 @@ public class EmailServiceImpl implements EmailService {
                 .trim();
     }
 
-    @Override
-    public void sendJobSubmittedForApprovalEmail(String toEmail, String hiringManagerName,
-                                                  String jobTitle, String recruiterName) {
-        String greeting = hiringManagerName == null || hiringManagerName.isBlank()
-                ? "Xin chao" : "Xin chao " + hiringManagerName;
-        String recruiterText = recruiterName == null || recruiterName.isBlank()
-                ? "Mot Recruiter" : recruiterName;
-        String subject = productName + " - Vi tri \"" + jobTitle + "\" can duoc phe duyet";
-        String plainText = "%s,\n\n%s da gui yeu cau tuyen dung \"%s\" de cho ban xem xet phe duyet.\n\nVui long dang nhap he thong de xem chi tiet va Phe duyet/Tu choi.\n\nTran trong,\n%s"
-                .formatted(greeting, recruiterText, jobTitle, productName);
-        String html = """
-                <!DOCTYPE html>
-                <html>
-                <body>
-                    <p>%s,</p>
-                    <p><strong>%s</strong> da gui yeu cau tuyen dung <strong>%s</strong> de cho ban xem xet phe duyet.</p>
-                    <p>Vui long dang nhap he thong de xem chi tiet va Phe duyet/Tu choi.</p>
-                    <p style="color:#6b7280;font-size:12px;">%s</p>
-                </body>
-                </html>
-                """.formatted(greeting, recruiterText, jobTitle, productName);
-        send(toEmail, subject, plainText, html);
-    }
-
     private void send(String toEmail, String subject, String plainText, String html) {
         try {
             MimeMessage message = mailSender.createMimeMessage();
@@ -206,6 +182,24 @@ public class EmailServiceImpl implements EmailService {
             // original HTTP request (the row was already committed independently).
             throw new EmailDeliveryException(e);
         }
+    }
+
+    @Override
+    public void sendJobSubmittedForApprovalEmail(String toEmail, String hiringManagerName,
+                                                  String jobTitle, String recruiterName) {
+        String managerName = (hiringManagerName == null || hiringManagerName.isBlank()) ? "Hiring Manager" : hiringManagerName;
+        String recName = (recruiterName == null || recruiterName.isBlank()) ? "Mot Recruiter" : recruiterName;
+
+        Map<String, String> variables = new HashMap<>();
+        variables.put("Manager_Name", managerName);
+        variables.put("Recruiter_Name", recName);
+        variables.put("Job_Title", jobTitle != null ? jobTitle : "");
+        variables.put("Department_Name", "phong ban cua ban");
+        variables.put("Openings", "mot so");
+        variables.put("Job_Approval_Link", "");
+        variables.put("Company", productName);
+
+        sendTemplateEmail(toEmail, "EM-02", variables);
     }
 
     /** Wraps any checked/unchecked failure from the underlying mail transport. */
