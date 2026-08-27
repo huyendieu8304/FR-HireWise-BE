@@ -1,27 +1,38 @@
 package com.hirewise.be.service;
 
 import com.hirewise.be.authorization.AccessControlService;
+import com.hirewise.be.authorization.AccessScopeService;
 import com.hirewise.be.authorization.PermissionCodes;
 import com.hirewise.be.authorization.ResourceContext;
 import com.hirewise.be.domain.Department;
+import com.hirewise.be.domain.JobApproval;
 import com.hirewise.be.domain.JobPosition;
 import com.hirewise.be.domain.JobStatus;
+import com.hirewise.be.domain.PipelineTemplate;
+import com.hirewise.be.domain.PipelineTemplateStatus;
 import com.hirewise.be.domain.ScopeType;
 import com.hirewise.be.domain.User;
 import com.hirewise.be.domain.UserAccessScope;
 import com.hirewise.be.dto.PagedResponseDto;
 import com.hirewise.be.dto.request.JobPositionRequestDto;
+import com.hirewise.be.dto.request.SubmitJobRequestDto;
 import com.hirewise.be.dto.response.JobDetailResponseDto;
 import com.hirewise.be.dto.response.JobSummaryResponseDto;
+import com.hirewise.be.event.OutboxEventPublisher;
+import com.hirewise.be.event.OutboxEventType;
+import com.hirewise.be.event.OutboxPayloads;
 import com.hirewise.be.exception.BadRequestException;
 import com.hirewise.be.exception.BusinessConflictException;
 import com.hirewise.be.exception.ErrorCode;
 import com.hirewise.be.exception.ResourceNotFoundException;
 import com.hirewise.be.mapper.JobMapper;
 import com.hirewise.be.repository.DepartmentRepository;
+import com.hirewise.be.repository.JobApprovalRepository;
 import com.hirewise.be.repository.JobPositionRepository;
+import com.hirewise.be.repository.PipelineTemplateRepository;
 import com.hirewise.be.repository.UserAccessScopeRepository;
 import com.hirewise.be.repository.UserRepository;
+import com.hirewise.be.repository.UserRoleRepository;
 import com.hirewise.be.security.CurrentUser;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
@@ -50,6 +61,11 @@ import java.util.UUID;
  * {@code JobApprovalService#listPendingApproval} - kept as its own copy
  * here rather than a shared helper, matching this codebase's existing
  * one-service-per-screen convention.
+ * <p>
+ * Also owns UC-12 (create/edit a Draft) and UC-13 (attach Pipeline
+ * Template + submit for approval) - all 3 use cases operate on the same
+ * {@code /api/jobs} resource, so they live in the same Controller/Service
+ * rather than a parallel one.
  */
 @Slf4j
 @Service
@@ -58,10 +74,15 @@ import java.util.UUID;
 public class JobService {
 
     JobPositionRepository jobPositionRepository;
+    JobApprovalRepository jobApprovalRepository;
+    PipelineTemplateRepository pipelineTemplateRepository;
     UserAccessScopeRepository userAccessScopeRepository;
+    UserRoleRepository userRoleRepository;
     DepartmentRepository departmentRepository;
     UserRepository userRepository;
     AccessControlService accessControlService;
+    AccessScopeService accessScopeService;
+    OutboxEventPublisher outboxEventPublisher;
     Clock clock;
 
     /**
@@ -246,6 +267,112 @@ public class JobService {
 
         log.info("Updated draft job position: {} (title={}, status={})", job.getId(), job.getTitle(), job.getStatus());
         return JobMapper.toDetailDto(job);
+    }
+
+    /**
+     * UC-13 normal flow: attaches an {@code ACTIVE} Pipeline Template to a
+     * Draft/Rejected Job Position and submits it for approval
+     * ({@code status -> PENDING_APPROVAL}). Creates a pending
+     * {@link JobApproval} decision row (decision {@code null}, resolved by
+     * UC-15) and notifies every Hiring Manager whose Access Scope covers
+     * the job's department (EM-02).
+     *
+     * @param jobId       id of the job position to submit
+     * @param request     the chosen Pipeline Template
+     * @param currentUser Recruiter (or anyone else granted {@code JOB_SUBMIT}
+     *                    within the job's department) performing the submission
+     * @return the updated job
+     * @throws ResourceNotFoundException if no job exists with {@code jobId}, or if
+     *                                    {@code pipelineTemplateId} does not exist
+     * @throws BusinessConflictException if the job is not currently {@code DRAFT}/{@code REJECTED}
+     * @throws BadRequestException       if the job is still missing a required field
+     *                                    (BR-JOB-01/ME-18), or the chosen template is not {@code ACTIVE}
+     */
+    @Transactional
+    public JobDetailResponseDto submitForApproval(
+            UUID jobId, SubmitJobRequestDto request, CurrentUser currentUser) {
+        // Same reasoning as updateDraftJob: the job must be loaded first to know its real
+        // department scope and current status before any of that can be validated.
+        JobPosition job = jobPositionRepository.findById(jobId)
+                .orElseThrow(() -> new ResourceNotFoundException(ErrorCode.JOB_POSITION_NOT_FOUND, jobId));
+        Long departmentId = job.getDepartment() != null ? job.getDepartment().getId() : null;
+        accessControlService.checkAccess(currentUser, PermissionCodes.JOB_SUBMIT,
+                ResourceContext.department(departmentId));
+
+        if (job.getStatus() != JobStatus.DRAFT && job.getStatus() != JobStatus.REJECTED) {
+            throw new BusinessConflictException(ErrorCode.JOB_POSITION_NOT_SUBMITTABLE, job.getStatus());
+        }
+        // BR-JOB-01: title/department/openings are already guaranteed non-null by
+        // createJob/updateDraftJob's own Bean Validation - employmentType is the only field
+        // that's genuinely still optional until this exact point (UC-12 Screen Description).
+        if (job.getEmploymentType() == null) {
+            throw new BadRequestException(ErrorCode.JOB_MISSING_REQUIRED_FIELDS_FOR_SUBMIT);
+        }
+
+        PipelineTemplate template = pipelineTemplateRepository.findById(request.getPipelineTemplateId())
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        ErrorCode.PIPELINE_TEMPLATE_NOT_FOUND, request.getPipelineTemplateId()));
+        // Precondition ("Đã có ít nhất 1 Pipeline Template Active"): only an Active template
+        // (BR-PIPE-01 already satisfied) may be assigned to a real Job Position.
+        if (template.getStatus() != PipelineTemplateStatus.ACTIVE) {
+            throw new BadRequestException(ErrorCode.JOB_PIPELINE_TEMPLATE_NOT_ACTIVE);
+        }
+
+        Instant now = Instant.now(clock);
+        job.setPipelineTemplate(template);
+        job.setStatus(JobStatus.PENDING_APPROVAL);
+        job.setUpdatedAt(now);
+        jobPositionRepository.save(job);
+
+        JobApproval pendingApproval = JobApproval.builder()
+                .jobPosition(job)
+                .createdAt(now)
+                .build();
+        jobApprovalRepository.save(pendingApproval);
+
+        notifyHiringManagers(job);
+
+        log.info("Submitted job position for approval: {} (pipelineTemplateId={})",
+                job.getId(), template.getId());
+        return JobMapper.toDetailDto(job);
+    }
+
+    /**
+     * UC-13 step 5 (EM-02): notifies every Hiring Manager whose Access
+     * Scope covers the job's department. The system is scope-based (any
+     * Hiring Manager covering the department can review it, see
+     * {@code JobApprovalService}) rather than a single assigned owner -
+     * {@link JobPosition#getHiringManager()} is never set here for that
+     * reason, "the Hiring Manager phụ trách" really means "every Hiring
+     * Manager currently in scope".
+     */
+    private void notifyHiringManagers(JobPosition job) {
+        Instant now = Instant.now(clock);
+        List<Long> hiringManagerIds = userRoleRepository.findActiveUserIdsByRoleCode("HIRING_MANAGER", now);
+        if (hiringManagerIds.isEmpty()) {
+            log.warn("UC-13: no active Hiring Manager account exists — job {} has no one to notify", job.getId());
+            return;
+        }
+
+        Long departmentId = job.getDepartment() != null ? job.getDepartment().getId() : null;
+        ResourceContext jobResource = ResourceContext.department(departmentId);
+        // requiresWrite=true: matches the exact scope check JOB_APPROVE itself uses (only a
+        // Hiring Manager who could actually act on this job is worth notifying about it).
+        List<User> hiringManagers = userRepository.findAllById(hiringManagerIds).stream()
+                .filter(user -> accessScopeService.isWithinScope(user.getId(), jobResource, true))
+                .toList();
+
+        String recruiterName = job.getRecruiter() != null ? job.getRecruiter().getFullName() : null;
+        for (User hiringManager : hiringManagers) {
+            if (hiringManager.getEmail() == null) {
+                continue;
+            }
+            outboxEventPublisher.publish(
+                    OutboxEventType.JOB_SUBMITTED_FOR_APPROVAL_EMAIL,
+                    OutboxPayloads.jobSubmittedForApprovalEmail(
+                            hiringManager.getEmail(), hiringManager.getFullName(), job.getTitle(), recruiterName));
+        }
+        log.info("UC-13: notified {} Hiring Manager(s) for job {}", hiringManagers.size(), job.getId());
     }
 
     /** BR-JOB-02: salary_min must not exceed salary_max when both are provided (EX-02/ME-19). */

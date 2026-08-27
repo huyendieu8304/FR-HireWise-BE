@@ -3,6 +3,7 @@ package com.hirewise.be.controller;
 import com.hirewise.be.domain.JobStatus;
 import com.hirewise.be.dto.PagedResponseDto;
 import com.hirewise.be.dto.request.JobPositionRequestDto;
+import com.hirewise.be.dto.request.SubmitJobRequestDto;
 import com.hirewise.be.dto.response.JobDetailResponseDto;
 import com.hirewise.be.dto.response.JobSummaryResponseDto;
 import com.hirewise.be.security.CurrentUser;
@@ -32,15 +33,17 @@ import java.util.UUID;
  * "Vị trí tuyển dụng" - internal Job Position list + detail, the entry
  * point on the sidebar from which a Recruiter/Hiring Manager opens a Job's
  * JD (tab "Mô tả chi tiết") and its Kanban board (tab "Kanban Board",
- * see {@link KanbanController}). UC-12 (draft/edit a Job Position) also
- * lives here, on the same {@code /api/jobs} resource.
+ * see {@link KanbanController}). UC-12 (draft/edit) and UC-13 (attach
+ * Pipeline Template + submit for approval) also live here, on the same
+ * {@code /api/jobs} resource.
  * <p>
  * RBAC per endpoint:
  * <ul>
- *   <li>{@code GET   /api/jobs}          - {@code JOB_VIEW}, scoped to the caller's departments; supports {@code keyword} search on title</li>
- *   <li>{@code GET   /api/jobs/{jobId}}  - {@code JOB_VIEW}, scoped to the job's department</li>
- *   <li>{@code POST  /api/jobs}          - {@code JOB_CREATE}, scoped to the target department</li>
- *   <li>{@code PATCH /api/jobs/{jobId}}  - {@code JOB_EDIT}, scoped to the job's department; only while Draft/Rejected</li>
+ *   <li>{@code GET   /api/jobs}            - {@code JOB_VIEW}, scoped to the caller's departments; supports {@code keyword} search on title</li>
+ *   <li>{@code GET   /api/jobs/{jobId}}    - {@code JOB_VIEW}, scoped to the job's department</li>
+ *   <li>{@code POST  /api/jobs}            - {@code JOB_CREATE}, scoped to the target department</li>
+ *   <li>{@code PATCH /api/jobs/{jobId}}    - {@code JOB_EDIT}, scoped to the job's department; only while Draft/Rejected</li>
+ *   <li>{@code POST  /api/jobs/{jobId}/submit} - {@code JOB_SUBMIT}, scoped to the job's department; only while Draft/Rejected</li>
  * </ul>
  */
 @RestController
@@ -121,5 +124,22 @@ public class JobController {
             @Valid @RequestBody JobPositionRequestDto request,
             @CurrentUserPrincipal CurrentUser currentUser) {
         return ResponseEntity.ok(jobService.updateDraftJob(jobId, request, currentUser));
+    }
+
+    /**
+     * UC-13 normal flow: attaches a Pipeline Template to a Draft/Rejected
+     * Job Position and submits it for approval. Requires {@code JOB_SUBMIT}.
+     *
+     * @param jobId       id of the job position to submit
+     * @param request     the chosen Pipeline Template
+     * @param currentUser authenticated caller, used for authorization
+     * @return the updated job, now {@code PENDING_APPROVAL}
+     */
+    @PostMapping("/{jobId}/submit")
+    public ResponseEntity<JobDetailResponseDto> submit(
+            @PathVariable UUID jobId,
+            @Valid @RequestBody SubmitJobRequestDto request,
+            @CurrentUserPrincipal CurrentUser currentUser) {
+        return ResponseEntity.ok(jobService.submitForApproval(jobId, request, currentUser));
     }
 }

@@ -71,6 +71,14 @@ public enum ErrorCode {
     JOB_DEADLINE_IN_PAST("error.job_deadline_in_past"),
     JOB_POSITION_NOT_EDITABLE("error.job_position_not_editable"),
 
+    // UC-04 (prerequisite added for UC-13): activate a Pipeline Template (BR-PIPE-01/ME-11)
+    PIPELINE_TEMPLATE_NOT_READY_TO_ACTIVATE("error.pipeline_template_not_ready_to_activate"),
+
+    // UC-13 Attach Pipeline Template + submit a Job Position for approval (BR-JOB-01/ME-18)
+    JOB_POSITION_NOT_SUBMITTABLE("error.job_position_not_submittable"),
+    JOB_MISSING_REQUIRED_FIELDS_FOR_SUBMIT("error.job_missing_required_fields_for_submit"),
+    JOB_PIPELINE_TEMPLATE_NOT_ACTIVE("error.job_pipeline_template_not_active"),
+
     ;
 
     private final String key;

@@ -442,4 +442,80 @@ class PipelineServiceTest {
         verify(accessControlService).checkAccess(hrAdmin, PermissionCodes.PIPELINE_MANAGE,
                 ResourceContext.department(DEPARTMENT_ID));
     }
+
+    // -------------------------------------------------------------------
+    // Activate Pipeline Template (prerequisite added for UC-13)
+    // -------------------------------------------------------------------
+
+    private PipelineStage stageOfType(Long id, int position, StageType stageType, PipelineTemplate template) {
+        return PipelineStage.builder()
+                .id(id).pipelineTemplate(template).name("Stage " + id).code("STAGE_" + id)
+                .stageType(stageType).position(position).terminal(false).active(true)
+                .createdAt(NOW).updatedAt(NOW).build();
+    }
+
+    @Test
+    void activateTemplate_unknownTemplate_throwsResourceNotFound() {
+        when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> pipelineService.activateTemplate(TEMPLATE_ID, hrAdmin))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.PIPELINE_TEMPLATE_NOT_FOUND);
+    }
+
+    @Test
+    void activateTemplate_alreadyActive_isIdempotentNoOp() {
+        PipelineTemplate template = templateWithDepartment(null);
+        template.setStatus(PipelineTemplateStatus.ACTIVE);
+        when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.of(template));
+
+        PipelineTemplateResponseDto response = pipelineService.activateTemplate(TEMPLATE_ID, hrAdmin);
+
+        assertThat(response.getStatus()).isEqualTo(PipelineTemplateStatus.ACTIVE);
+        verify(pipelineTemplateRepository, never()).save(any());
+        verify(pipelineStageRepository, never()).findByPipelineTemplate_IdAndActiveTrueOrderByPositionAsc(any());
+    }
+
+    @Test
+    void activateTemplate_fewerThanTwoStages_throwsBusinessConflict_BR_PIPE_01() {
+        PipelineTemplate template = templateWithDepartment(null);
+        when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.of(template));
+        when(pipelineStageRepository.findByPipelineTemplate_IdAndActiveTrueOrderByPositionAsc(TEMPLATE_ID))
+                .thenReturn(List.of(stageOfType(1L, 1, StageType.INTAKE, template)));
+
+        assertThatThrownBy(() -> pipelineService.activateTemplate(TEMPLATE_ID, hrAdmin))
+                .isInstanceOf(BusinessConflictException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.PIPELINE_TEMPLATE_NOT_READY_TO_ACTIVATE);
+        verify(pipelineTemplateRepository, never()).save(any());
+    }
+
+    @Test
+    void activateTemplate_missingTerminalRejectedStage_throwsBusinessConflict_BR_PIPE_01() {
+        PipelineTemplate template = templateWithDepartment(null);
+        when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.of(template));
+        when(pipelineStageRepository.findByPipelineTemplate_IdAndActiveTrueOrderByPositionAsc(TEMPLATE_ID))
+                .thenReturn(List.of(
+                        stageOfType(1L, 1, StageType.INTAKE, template),
+                        stageOfType(2L, 2, StageType.TERMINAL_SUCCESS, template)));
+
+        assertThatThrownBy(() -> pipelineService.activateTemplate(TEMPLATE_ID, hrAdmin))
+                .isInstanceOf(BusinessConflictException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.PIPELINE_TEMPLATE_NOT_READY_TO_ACTIVATE);
+    }
+
+    @Test
+    void activateTemplate_hasEnoughStagesAndBothTerminals_activatesSuccessfully() {
+        PipelineTemplate template = templateWithDepartment(null);
+        when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.of(template));
+        when(pipelineStageRepository.findByPipelineTemplate_IdAndActiveTrueOrderByPositionAsc(TEMPLATE_ID))
+                .thenReturn(List.of(
+                        stageOfType(1L, 1, StageType.INTAKE, template),
+                        stageOfType(2L, 2, StageType.TERMINAL_SUCCESS, template),
+                        stageOfType(3L, 3, StageType.TERMINAL_REJECTED, template)));
+
+        PipelineTemplateResponseDto response = pipelineService.activateTemplate(TEMPLATE_ID, hrAdmin);
+
+        assertThat(response.getStatus()).isEqualTo(PipelineTemplateStatus.ACTIVE);
+        verify(pipelineTemplateRepository).save(template);
+    }
 }

@@ -30,4 +30,22 @@ public interface UserRoleRepository extends JpaRepository<UserRole, Long> {
     List<String> findActiveRoleCodes(@Param("userId") Long userId, @Param("now") Instant now);
 
     List<UserRole> findByUserId(Long userId);
+
+    /**
+     * UC-13 step 5 (EM-02): every user currently holding {@code roleCode}
+     * as of {@code now} - used to find Hiring Manager candidates to notify
+     * when a Job Position is submitted for approval (the caller then
+     * narrows this down by Access Scope, see {@code JobService}).
+     *
+     * @param roleCode role code to match, e.g. {@code "HIRING_MANAGER"}
+     * @param now      point in time to evaluate role validity against
+     * @return ids of users currently holding this role
+     */
+    @Query("""
+            SELECT DISTINCT ur.user.id FROM UserRole ur
+            WHERE ur.role.code = :roleCode
+                AND ur.validFrom <= :now
+                AND (ur.validTo IS NULL OR ur.validTo > :now)
+            """)
+    List<Long> findActiveUserIdsByRoleCode(@Param("roleCode") String roleCode, @Param("now") Instant now);
 }

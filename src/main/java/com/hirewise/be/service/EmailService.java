@@ -29,4 +29,16 @@ public interface EmailService {
      */
     void sendJobApprovalDecisionEmail(String toEmail, String recruiterName,
                                       String jobTitle, boolean approved, String reason);
+
+    /**
+     * EM-02 (UC-13 step 5): notifies a Hiring Manager that a Job Position was
+     * submitted for approval and needs their review.
+     *
+     * @param toEmail           Hiring Manager's email address
+     * @param hiringManagerName Hiring Manager's full name
+     * @param jobTitle          title of the job position submitted for approval
+     * @param recruiterName     full name of the Recruiter who submitted it
+     */
+    void sendJobSubmittedForApprovalEmail(String toEmail, String hiringManagerName,
+                                          String jobTitle, String recruiterName);
 }

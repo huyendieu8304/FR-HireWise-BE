@@ -1,24 +1,33 @@
 package com.hirewise.be.service;
 
 import com.hirewise.be.authorization.AccessControlService;
+import com.hirewise.be.authorization.AccessScopeService;
 import com.hirewise.be.authorization.PermissionCodes;
 import com.hirewise.be.authorization.ResourceContext;
 import com.hirewise.be.domain.Department;
 import com.hirewise.be.domain.EmploymentType;
+import com.hirewise.be.domain.JobApproval;
 import com.hirewise.be.domain.JobPosition;
 import com.hirewise.be.domain.JobStatus;
+import com.hirewise.be.domain.PipelineTemplate;
+import com.hirewise.be.domain.PipelineTemplateStatus;
 import com.hirewise.be.domain.User;
 import com.hirewise.be.dto.request.JobPositionRequestDto;
+import com.hirewise.be.dto.request.SubmitJobRequestDto;
 import com.hirewise.be.dto.response.JobDetailResponseDto;
+import com.hirewise.be.event.OutboxEventPublisher;
 import com.hirewise.be.exception.BadRequestException;
 import com.hirewise.be.exception.BusinessConflictException;
 import com.hirewise.be.exception.ErrorCode;
 import com.hirewise.be.exception.PermissionDeniedException;
 import com.hirewise.be.exception.ResourceNotFoundException;
 import com.hirewise.be.repository.DepartmentRepository;
+import com.hirewise.be.repository.JobApprovalRepository;
 import com.hirewise.be.repository.JobPositionRepository;
+import com.hirewise.be.repository.PipelineTemplateRepository;
 import com.hirewise.be.repository.UserAccessScopeRepository;
 import com.hirewise.be.repository.UserRepository;
+import com.hirewise.be.repository.UserRoleRepository;
 import com.hirewise.be.security.CurrentUser;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -32,6 +41,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -46,7 +56,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * UC-12: Draft/edit a Job Position.
+ * UC-12: Draft/edit a Job Position. UC-13: attach Pipeline Template + submit for approval.
  */
 @ExtendWith(MockitoExtension.class)
 class JobServiceTest {
@@ -54,17 +64,28 @@ class JobServiceTest {
     private static final Instant NOW = Instant.parse("2026-08-26T00:00:00Z");
     private static final Long DEPARTMENT_ID = 4L;
     private static final UUID JOB_ID = UUID.randomUUID();
+    private static final Long PIPELINE_TEMPLATE_ID = 10L;
 
     @Mock
     private JobPositionRepository jobPositionRepository;
     @Mock
+    private JobApprovalRepository jobApprovalRepository;
+    @Mock
+    private PipelineTemplateRepository pipelineTemplateRepository;
+    @Mock
     private UserAccessScopeRepository userAccessScopeRepository;
+    @Mock
+    private UserRoleRepository userRoleRepository;
     @Mock
     private DepartmentRepository departmentRepository;
     @Mock
     private UserRepository userRepository;
     @Mock
     private AccessControlService accessControlService;
+    @Mock
+    private AccessScopeService accessScopeService;
+    @Mock
+    private OutboxEventPublisher outboxEventPublisher;
 
     private JobService jobService;
     private CurrentUser recruiter;
@@ -72,8 +93,9 @@ class JobServiceTest {
     @BeforeEach
     void setUp() {
         Clock fixedClock = Clock.fixed(NOW, ZoneOffset.UTC);
-        jobService = new JobService(jobPositionRepository, userAccessScopeRepository,
-                departmentRepository, userRepository, accessControlService, fixedClock);
+        jobService = new JobService(jobPositionRepository, jobApprovalRepository, pipelineTemplateRepository,
+                userAccessScopeRepository, userRoleRepository, departmentRepository, userRepository,
+                accessControlService, accessScopeService, outboxEventPublisher, fixedClock);
         recruiter = new CurrentUser(7L, "recruiter@hirewise.com", "Recruiter One", Set.of("RECRUITER"));
     }
 
@@ -86,12 +108,17 @@ class JobServiceTest {
     }
 
     private JobPosition draftJob(JobStatus status, Long departmentId) {
+        return draftJob(status, departmentId, EmploymentType.FULL_TIME);
+    }
+
+    private JobPosition draftJob(JobStatus status, Long departmentId, EmploymentType employmentType) {
         Department department = departmentId != null
                 ? Department.builder().id(departmentId).name("Engineering").build() : null;
         return JobPosition.builder()
                 .id(JOB_ID)
                 .title("Old Title")
                 .department(department)
+                .employmentType(employmentType)
                 .openings(1)
                 .status(status)
                 .createdByUserId(recruiter.userId())
@@ -99,6 +126,11 @@ class JobServiceTest {
                 .createdAt(NOW)
                 .updatedAt(NOW)
                 .build();
+    }
+
+    private PipelineTemplate activeTemplate() {
+        return PipelineTemplate.builder()
+                .id(PIPELINE_TEMPLATE_ID).name("Default Pipeline").status(PipelineTemplateStatus.ACTIVE).build();
     }
 
     @Test
@@ -230,5 +262,108 @@ class JobServiceTest {
                 .isInstanceOf(BadRequestException.class)
                 .extracting("errorCode").isEqualTo(ErrorCode.JOB_SALARY_RANGE_INVALID);
         verify(jobPositionRepository, never()).save(any());
+    }
+
+    // -------------------------------------------------------------------
+    // UC-13: attach Pipeline Template + submit for approval
+    // -------------------------------------------------------------------
+
+    @Test
+    void submitForApproval_unknownJob_throwsResourceNotFound() {
+        when(jobPositionRepository.findById(JOB_ID)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> jobService.submitForApproval(
+                JOB_ID, new SubmitJobRequestDto(PIPELINE_TEMPLATE_ID), recruiter))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.JOB_POSITION_NOT_FOUND);
+        verify(accessControlService, never()).checkAccess(any(), any(), any());
+    }
+
+    @Test
+    void submitForApproval_publishedStatus_throwsBusinessConflict_notSubmittable() {
+        when(jobPositionRepository.findById(JOB_ID))
+                .thenReturn(Optional.of(draftJob(JobStatus.PUBLISHED, DEPARTMENT_ID)));
+
+        assertThatThrownBy(() -> jobService.submitForApproval(
+                JOB_ID, new SubmitJobRequestDto(PIPELINE_TEMPLATE_ID), recruiter))
+                .isInstanceOf(BusinessConflictException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.JOB_POSITION_NOT_SUBMITTABLE);
+        verify(pipelineTemplateRepository, never()).findById(any());
+    }
+
+    @Test
+    void submitForApproval_missingEmploymentType_throwsBadRequest_BR_JOB_01() {
+        when(jobPositionRepository.findById(JOB_ID))
+                .thenReturn(Optional.of(draftJob(JobStatus.DRAFT, DEPARTMENT_ID, null)));
+
+        assertThatThrownBy(() -> jobService.submitForApproval(
+                JOB_ID, new SubmitJobRequestDto(PIPELINE_TEMPLATE_ID), recruiter))
+                .isInstanceOf(BadRequestException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.JOB_MISSING_REQUIRED_FIELDS_FOR_SUBMIT);
+        verify(pipelineTemplateRepository, never()).findById(any());
+    }
+
+    @Test
+    void submitForApproval_unknownPipelineTemplate_throwsResourceNotFound() {
+        when(jobPositionRepository.findById(JOB_ID))
+                .thenReturn(Optional.of(draftJob(JobStatus.DRAFT, DEPARTMENT_ID)));
+        when(pipelineTemplateRepository.findById(PIPELINE_TEMPLATE_ID)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> jobService.submitForApproval(
+                JOB_ID, new SubmitJobRequestDto(PIPELINE_TEMPLATE_ID), recruiter))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.PIPELINE_TEMPLATE_NOT_FOUND);
+        verify(jobPositionRepository, never()).save(any());
+    }
+
+    @Test
+    void submitForApproval_draftPipelineTemplate_throwsBadRequest_notActive() {
+        when(jobPositionRepository.findById(JOB_ID))
+                .thenReturn(Optional.of(draftJob(JobStatus.DRAFT, DEPARTMENT_ID)));
+        PipelineTemplate draftTemplate = PipelineTemplate.builder()
+                .id(PIPELINE_TEMPLATE_ID).name("Not Ready").status(PipelineTemplateStatus.DRAFT).build();
+        when(pipelineTemplateRepository.findById(PIPELINE_TEMPLATE_ID)).thenReturn(Optional.of(draftTemplate));
+
+        assertThatThrownBy(() -> jobService.submitForApproval(
+                JOB_ID, new SubmitJobRequestDto(PIPELINE_TEMPLATE_ID), recruiter))
+                .isInstanceOf(BadRequestException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.JOB_PIPELINE_TEMPLATE_NOT_ACTIVE);
+        verify(jobPositionRepository, never()).save(any());
+    }
+
+    @Test
+    void submitForApproval_valid_assignsTemplateAndMovesToPendingApproval() {
+        when(jobPositionRepository.findById(JOB_ID))
+                .thenReturn(Optional.of(draftJob(JobStatus.DRAFT, DEPARTMENT_ID)));
+        when(pipelineTemplateRepository.findById(PIPELINE_TEMPLATE_ID)).thenReturn(Optional.of(activeTemplate()));
+        when(userRoleRepository.findActiveUserIdsByRoleCode(eq("HIRING_MANAGER"), any())).thenReturn(List.of());
+
+        JobDetailResponseDto response = jobService.submitForApproval(
+                JOB_ID, new SubmitJobRequestDto(PIPELINE_TEMPLATE_ID), recruiter);
+
+        assertThat(response.getStatus()).isEqualTo(JobStatus.PENDING_APPROVAL);
+        assertThat(response.getPipelineTemplateId()).isEqualTo(PIPELINE_TEMPLATE_ID);
+        verify(accessControlService).checkAccess(recruiter, PermissionCodes.JOB_SUBMIT,
+                ResourceContext.department(DEPARTMENT_ID));
+        verify(jobApprovalRepository).save(any(JobApproval.class));
+    }
+
+    @Test
+    void submitForApproval_notifiesOnlyHiringManagersWithinScope() {
+        when(jobPositionRepository.findById(JOB_ID))
+                .thenReturn(Optional.of(draftJob(JobStatus.DRAFT, DEPARTMENT_ID)));
+        when(pipelineTemplateRepository.findById(PIPELINE_TEMPLATE_ID)).thenReturn(Optional.of(activeTemplate()));
+        User inScopeManager = User.builder().id(20L).fullName("Manager In Scope").email("in-scope@hirewise.com").build();
+        User outOfScopeManager = User.builder().id(21L).fullName("Manager Out").email("out-scope@hirewise.com").build();
+        when(userRoleRepository.findActiveUserIdsByRoleCode(eq("HIRING_MANAGER"), any()))
+                .thenReturn(List.of(20L, 21L));
+        when(userRepository.findAllById(List.of(20L, 21L))).thenReturn(List.of(inScopeManager, outOfScopeManager));
+        when(accessScopeService.isWithinScope(eq(20L), any(), eq(true))).thenReturn(true);
+        when(accessScopeService.isWithinScope(eq(21L), any(), eq(true))).thenReturn(false);
+
+        jobService.submitForApproval(JOB_ID, new SubmitJobRequestDto(PIPELINE_TEMPLATE_ID), recruiter);
+
+        verify(outboxEventPublisher, org.mockito.Mockito.times(1))
+                .publish(eq(com.hirewise.be.event.OutboxEventType.JOB_SUBMITTED_FOR_APPROVAL_EMAIL), any());
     }
 }
