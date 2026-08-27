@@ -1,6 +1,7 @@
 package com.hirewise.be.repository;
 
 import com.hirewise.be.domain.PipelineStage;
+import com.hirewise.be.domain.StageType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -68,5 +69,18 @@ public interface PipelineStageRepository extends JpaRepository<PipelineStage, Lo
      * @return the first active stage, if the template has one configured
      */
     Optional<PipelineStage> findFirstByPipelineTemplate_IdAndActiveTrueOrderByPositionAsc(Long pipelineTemplateId);
+
+    /**
+     * UC-29: the Stage an Application lands in when rejected - BR-PIPE-01
+     * guarantees every Pipeline Template has at least one active
+     * {@link StageType#TERMINAL_REJECTED} stage, so this is the target of
+     * {@code ApplicationRejectionService#reject}.
+     *
+     * @param pipelineTemplateId the Job's assigned pipeline template
+     * @param stageType          always {@link StageType#TERMINAL_REJECTED} in practice
+     * @return the template's active terminal-rejected stage, if configured
+     */
+    Optional<PipelineStage> findFirstByPipelineTemplate_IdAndStageTypeAndActiveTrue(
+            Long pipelineTemplateId, StageType stageType);
 
 }
