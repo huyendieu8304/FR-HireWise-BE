@@ -202,6 +202,23 @@ public class EmailServiceImpl implements EmailService {
         sendTemplateEmail(toEmail, "EM-02", variables);
     }
 
+    @Override
+    public void sendApplicationRejectionEmail(String toEmail, String candidateName,
+                                               String jobTitle, String reasonLabel, String customMessage) {
+        String candName = (candidateName == null || candidateName.isBlank()) ? "Ung vien" : candidateName;
+        String reason = (reasonLabel == null || reasonLabel.isBlank()) ? "" : reasonLabel;
+        String note = (customMessage == null || customMessage.isBlank()) ? "" : " (" + customMessage + ")";
+        String customMessageBlock = reason.isBlank() ? "." : " vi ly do: " + reason + note + ".";
+
+        Map<String, String> variables = new HashMap<>();
+        variables.put("Candidate_Name", candName);
+        variables.put("Job_Title", jobTitle != null ? jobTitle : "");
+        variables.put("Company", productName);
+        variables.put("Custom_Message_Block", customMessageBlock);
+
+        sendTemplateEmail(toEmail, "EM-09", variables);
+    }
+
     /** Wraps any checked/unchecked failure from the underlying mail transport. */
     public static class EmailDeliveryException extends RuntimeException {
         public EmailDeliveryException(Throwable cause) {

@@ -11,6 +11,8 @@ public enum OutboxEventType {
     /** EM-03 (UC-15 step 3 / AF-01 step 4): notifies the Recruiter of the Hiring Manager's decision. */
     JOB_APPROVAL_DECISION_EMAIL,
     /** EM-02 (UC-13 step 5): notifies a Hiring Manager that a Job Position needs their approval. */
-    JOB_SUBMITTED_FOR_APPROVAL_EMAIL
+    JOB_SUBMITTED_FOR_APPROVAL_EMAIL,
+    /** EM-09 (UC-30, BR-REJ-02): automatic polite rejection email after a Recruiter confirms UC-29. */
+    APPLICATION_REJECTION_EMAIL
 }
 

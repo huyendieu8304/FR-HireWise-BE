@@ -87,6 +87,12 @@ public class OutboxDispatcher {
                         payload.path("hiringManagerName").asText(null),
                         requireField(payload, "jobTitle", event.getEventType()),
                         payload.path("recruiterName").asText(null));
+                case APPLICATION_REJECTION_EMAIL -> emailService.sendApplicationRejectionEmail(
+                        requireField(payload, "email", event.getEventType()),
+                        payload.path("candidateName").asText(null),
+                        requireField(payload, "jobTitle", event.getEventType()),
+                        payload.path("reasonLabel").asText(null),
+                        payload.path("customMessage").asText(null));
             }
             event.setStatus(OutboxEventStatus.SENT);
             event.setProcessedAt(Instant.now(clock));

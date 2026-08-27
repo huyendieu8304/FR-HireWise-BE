@@ -74,5 +74,26 @@ public final class OutboxPayloads {
                 "jobTitle", jobTitle == null ? "" : jobTitle,
                 "recruiterName", recruiterName == null ? "" : recruiterName);
     }
+
+    /**
+     * Payload for {@link OutboxEventType#APPLICATION_REJECTION_EMAIL} (EM-09, UC-30, BR-REJ-02).
+     * Automatic polite rejection email sent right after a Recruiter confirms UC-29.
+     *
+     * @param email         candidate's email address
+     * @param candidateName candidate's full name (may be null/blank)
+     * @param jobTitle      title of the job the candidate was rejected from
+     * @param reasonLabel   standardized rejection reason's display label (BR-REJ-01)
+     * @param customMessage optional Recruiter-written note appended on top of the reason; may be null/blank
+     */
+    public static Map<String, Object> applicationRejectionEmail(
+            String email, String candidateName, String jobTitle, String reasonLabel, String customMessage) {
+        java.util.HashMap<String, Object> payload = new java.util.HashMap<>();
+        payload.put("email", email == null ? "" : email);
+        payload.put("candidateName", candidateName == null ? "" : candidateName);
+        payload.put("jobTitle", jobTitle == null ? "" : jobTitle);
+        payload.put("reasonLabel", reasonLabel == null ? "" : reasonLabel);
+        payload.put("customMessage", customMessage == null ? "" : customMessage);
+        return java.util.Collections.unmodifiableMap(payload);
+    }
 }
 
