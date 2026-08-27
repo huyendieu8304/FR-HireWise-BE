@@ -39,6 +39,7 @@ import java.util.List;
  *   <li>{@code POST   /api/pipeline-templates/{templateId}/stages}             - {@code PIPELINE_MANAGE}</li>
  *   <li>{@code PATCH  /api/pipeline-templates/{templateId}/stages/reorder}     - {@code PIPELINE_MANAGE}</li>
  *   <li>{@code DELETE /api/pipeline-templates/{templateId}/stages/{stageId}}   - {@code PIPELINE_MANAGE}</li>
+ *   <li>{@code POST   /api/pipeline-templates/{templateId}/activate}          - {@code PIPELINE_MANAGE}</li>
  * </ul>
  */
 @RestController
@@ -142,5 +143,22 @@ public class PipelineController {
             @CurrentUserPrincipal CurrentUser currentUser) {
         pipelineService.deleteStage(templateId, stageId, currentUser);
         return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Activates a Pipeline Template ({@code DRAFT} -> {@code ACTIVE}), a
+     * prerequisite added for UC-13 (a Job Position can only be submitted
+     * for approval with an ACTIVE template attached). Requires
+     * {@code PIPELINE_MANAGE}.
+     *
+     * @param templateId  id of the pipeline template to activate
+     * @param currentUser authenticated caller, used for authorization and auditing
+     * @return the activated template
+     */
+    @PostMapping("/{templateId}/activate")
+    public ResponseEntity<PipelineTemplateResponseDto> activate(
+            @PathVariable Long templateId,
+            @CurrentUserPrincipal CurrentUser currentUser) {
+        return ResponseEntity.ok(pipelineService.activateTemplate(templateId, currentUser));
     }
 }

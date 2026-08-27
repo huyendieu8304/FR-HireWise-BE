@@ -56,5 +56,23 @@ public final class OutboxPayloads {
         payload.put("reason", reason == null ? "" : reason);
         return java.util.Collections.unmodifiableMap(payload);
     }
+
+    /**
+     * Payload for {@link OutboxEventType#JOB_SUBMITTED_FOR_APPROVAL_EMAIL} (EM-02, UC-13).
+     * Notifies a Hiring Manager that a Job Position was submitted and needs their review.
+     *
+     * @param email             Hiring Manager's email address
+     * @param hiringManagerName Hiring Manager's full name (may be null/blank)
+     * @param jobTitle          title of the job position submitted for approval
+     * @param recruiterName     full name of the Recruiter who submitted it (may be null/blank)
+     */
+    public static Map<String, Object> jobSubmittedForApprovalEmail(
+            String email, String hiringManagerName, String jobTitle, String recruiterName) {
+        return Map.of(
+                "email", email == null ? "" : email,
+                "hiringManagerName", hiringManagerName == null ? "" : hiringManagerName,
+                "jobTitle", jobTitle == null ? "" : jobTitle,
+                "recruiterName", recruiterName == null ? "" : recruiterName);
+    }
 }
 

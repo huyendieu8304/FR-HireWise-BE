@@ -184,6 +184,24 @@ public class EmailServiceImpl implements EmailService {
         }
     }
 
+    @Override
+    public void sendJobSubmittedForApprovalEmail(String toEmail, String hiringManagerName,
+                                                  String jobTitle, String recruiterName) {
+        String managerName = (hiringManagerName == null || hiringManagerName.isBlank()) ? "Hiring Manager" : hiringManagerName;
+        String recName = (recruiterName == null || recruiterName.isBlank()) ? "Mot Recruiter" : recruiterName;
+
+        Map<String, String> variables = new HashMap<>();
+        variables.put("Manager_Name", managerName);
+        variables.put("Recruiter_Name", recName);
+        variables.put("Job_Title", jobTitle != null ? jobTitle : "");
+        variables.put("Department_Name", "phong ban cua ban");
+        variables.put("Openings", "mot so");
+        variables.put("Job_Approval_Link", "");
+        variables.put("Company", productName);
+
+        sendTemplateEmail(toEmail, "EM-02", variables);
+    }
+
     /** Wraps any checked/unchecked failure from the underlying mail transport. */
     public static class EmailDeliveryException extends RuntimeException {
         public EmailDeliveryException(Throwable cause) {

@@ -291,6 +291,52 @@ public class PipelineService {
     }
 
     /**
+     * Activates a Pipeline Template ({@code DRAFT} -> {@code ACTIVE}) once
+     * it satisfies BR-PIPE-01 - a prerequisite added for UC-13 ("Đã có ít
+     * nhất 1 Pipeline Template Active" precondition), since nothing else in
+     * the system could ever move a template out of {@code DRAFT} otherwise.
+     * Idempotent - activating an already-{@code ACTIVE} template is a no-op,
+     * not an error.
+     *
+     * @param templateId  id of the pipeline template to activate
+     * @param currentUser HR Admin performing the activation
+     * @return the activated template
+     * @throws ResourceNotFoundException if no template exists with {@code templateId}
+     * @throws BusinessConflictException if the template does not yet have >= 2 active
+     *                                    stages including one {@code TERMINAL_SUCCESS} and
+     *                                    one {@code TERMINAL_REJECTED} stage (BR-PIPE-01/ME-11)
+     */
+    @Transactional
+    public PipelineTemplateResponseDto activateTemplate(Long templateId, CurrentUser currentUser) {
+        PipelineTemplate template = findTemplateOrThrow(templateId);
+        Long departmentId = template.getDepartment() != null ? template.getDepartment().getId() : null;
+        accessControlService.checkAccess(currentUser, PermissionCodes.PIPELINE_MANAGE,
+                ResourceContext.department(departmentId));
+
+        if (template.getStatus() == PipelineTemplateStatus.ACTIVE) {
+            return PipelineMapper.toResponseDto(template);
+        }
+
+        List<PipelineStage> activeStages =
+                pipelineStageRepository.findByPipelineTemplate_IdAndActiveTrueOrderByPositionAsc(templateId);
+        boolean hasEnoughStages = activeStages.size() >= 2;
+        boolean hasTerminalSuccess = activeStages.stream()
+                .anyMatch(stage -> stage.getStageType() == StageType.TERMINAL_SUCCESS);
+        boolean hasTerminalRejected = activeStages.stream()
+                .anyMatch(stage -> stage.getStageType() == StageType.TERMINAL_REJECTED);
+        if (!hasEnoughStages || !hasTerminalSuccess || !hasTerminalRejected) {
+            throw new BusinessConflictException(ErrorCode.PIPELINE_TEMPLATE_NOT_READY_TO_ACTIVATE);
+        }
+
+        template.setStatus(PipelineTemplateStatus.ACTIVE);
+        template.setUpdatedAt(Instant.now(clock));
+        pipelineTemplateRepository.save(template);
+
+        log.info("Activated pipeline template: {} ({} active stages)", templateId, activeStages.size());
+        return PipelineMapper.toResponseDto(template);
+    }
+
+    /**
      * Maps stages to response DTOs, resolving each one's current
      * {@code applicationCount} (BR-PIPE-03) along the way - kept here
      * rather than in {@link PipelineMapper} because a Mapper must stay a

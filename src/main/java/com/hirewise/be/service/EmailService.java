@@ -38,4 +38,16 @@ public interface EmailService {
      * @param variables    placeholder variables mapped to values (e.g. Candidate_Name -> "Nguyen Van A")
      */
     void sendTemplateEmail(String toEmail, String templateCode, java.util.Map<String, String> variables);
+
+    /**
+     * EM-02 (UC-13 step 5): notifies a Hiring Manager that a Job Position was
+     * submitted for approval and needs their review.
+     *
+     * @param toEmail           Hiring Manager's email address
+     * @param hiringManagerName Hiring Manager's full name
+     * @param jobTitle          title of the job position submitted for approval
+     * @param recruiterName     full name of the Recruiter who submitted it
+     */
+    void sendJobSubmittedForApprovalEmail(String toEmail, String hiringManagerName,
+                                          String jobTitle, String recruiterName);
 }
