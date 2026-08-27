@@ -1,6 +1,11 @@
 package com.hirewise.be.service;
 
+import com.hirewise.be.domain.EmailTemplate;
+import com.hirewise.be.domain.EmailTemplateStatus;
+import com.hirewise.be.exception.ErrorCode;
+import com.hirewise.be.exception.ResourceNotFoundException;
 import com.hirewise.be.logging.LogMaskUtils;
+import com.hirewise.be.repository.EmailTemplateRepository;
 import jakarta.mail.internet.MimeMessage;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -8,69 +13,167 @@ import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.HashMap;
+import java.util.Map;
+
 /**
  * {@link EmailService} implementation backed by {@link JavaMailSender}
- * (SMTP settings from {@code spring.mail.*} / .env - see application.properties).
+ * and dynamic {@link EmailTemplate} records queried from the database.
  * <p>
- * Templates are kept as simple inline HTML rather than pulling in a
- * template engine (Thymeleaf/Freemarker) - the email bodies here are short
- * and few in number; a template engine would be worth adding once
- * EMAIL_TEMPLATE_MANAGE (see {@code authorization.PermissionCodes}) is
- * actually implemented as a user-editable feature.
+ * Email contents and subjects are loaded exclusively from {@code email_templates} table
+ * (seeded EM-01..EM-13, EM-SEC, etc.) and populated with runtime parameters.
  */
 @Slf4j
 @Service
 public class EmailServiceImpl implements EmailService {
 
+    private static final DateTimeFormatter VI_DATE_TIME_FORMATTER =
+            DateTimeFormatter.ofPattern("HH:mm dd/MM/yyyy").withZone(ZoneId.of("Asia/Ho_Chi_Minh"));
+
     private final JavaMailSender mailSender;
+    private final EmailTemplateRepository emailTemplateRepository;
     private final String fromAddress;
     private final String productName;
 
     public EmailServiceImpl(JavaMailSender mailSender,
-                             @Value("${app.mail.from:no-reply@hirewise.local}") String fromAddress,
-                             @Value("${app.mail.product-name:HireWise}") String productName) {
+                            EmailTemplateRepository emailTemplateRepository,
+                            @Value("${app.mail.from:no-reply@hirewise.local}") String fromAddress,
+                            @Value("${app.mail.product-name:HireWise}") String productName) {
         this.mailSender = mailSender;
+        this.emailTemplateRepository = emailTemplateRepository;
         this.fromAddress = fromAddress;
         this.productName = productName;
     }
 
     @Override
     public void sendActivationEmail(String toEmail, String fullName, String activationLink) {
-        String subject = productName + " - Kich hoat tai khoan cua ban";
-        String greeting = fullName == null || fullName.isBlank() ? "Xin chao" : "Xin chao " + fullName;
-        String html = """
-                <p>%s,</p>
-                <p>Tai khoan noi bo cua ban tren %s da duoc tao. Vui long bam vao lien ket ben duoi
-                de dat mat khau va kich hoat tai khoan:</p>
-                <p><a href="%s">%s</a></p>
-                <p>Lien ket nay se het han sau mot khoang thoi gian gioi han. Neu ban khong yeu cau,
-                vui long bo qua email nay.</p>
-                """.formatted(greeting, productName, activationLink, activationLink);
-        send(toEmail, subject, html);
+        String greetingName = (fullName == null || fullName.isBlank()) ? "ban" : fullName;
+
+        Map<String, String> variables = new HashMap<>();
+        variables.put("Full_Name", greetingName);
+        variables.put("Candidate_Name", greetingName);
+        variables.put("Activation_Link", activationLink != null ? activationLink : "");
+        variables.put("Company", productName);
+        variables.put("Role_Name", "Thanh vien");
+        variables.put("Department_Name", productName);
+
+        sendTemplateEmail(toEmail, "EM-01", variables);
     }
 
     @Override
     public void sendSecurityAlertEmail(String toEmail, String fullName, String ipAddress) {
-        String subject = productName + " - Canh bao dang nhap that bai nhieu lan";
-        String greeting = fullName == null || fullName.isBlank() ? "Xin chao" : "Xin chao " + fullName;
-        String html = """
-                <p>%s,</p>
-                <p>He thong ghi nhan 5 lan dang nhap sai lien tiep vao tai khoan cua ban tu dia chi IP %s.
-                Tai khoan cua ban da bi tam khoa trong 15 phut de bao ve an toan.</p>
-                <p>Neu day khong phai la ban, vui long doi mat khau ngay sau khi tai khoan duoc mo lai
-                va lien he quan tri vien.</p>
-                """.formatted(greeting, ipAddress == null ? "khong xac dinh" : ipAddress);
-        send(toEmail, subject, html);
+        String greetingName = (fullName == null || fullName.isBlank()) ? "ban" : fullName;
+        String ipDisplay = (ipAddress == null || ipAddress.isBlank()) ? "khong xac dinh" : ipAddress;
+
+        Map<String, String> variables = new HashMap<>();
+        variables.put("Full_Name", greetingName);
+        variables.put("IP_Address", ipDisplay);
+        variables.put("Company", productName);
+
+        sendTemplateEmail(toEmail, "EM-SEC", variables);
     }
 
-    private void send(String toEmail, String subject, String html) {
+    @Override
+    public void sendApplicationConfirmationEmail(String toEmail, String fullName, String jobTitle) {
+        String candidateName = (fullName == null || fullName.isBlank()) ? "Ung vien" : fullName;
+        String appliedAt = VI_DATE_TIME_FORMATTER.format(Instant.now());
+
+        Map<String, String> variables = new HashMap<>();
+        variables.put("Candidate_Name", candidateName);
+        variables.put("Full_Name", candidateName);
+        variables.put("Job_Title", jobTitle != null ? jobTitle : "");
+        variables.put("Company", productName);
+        variables.put("Applied_At", appliedAt);
+
+        sendTemplateEmail(toEmail, "EM-04", variables);
+    }
+
+    @Override
+    public void sendJobApprovalDecisionEmail(String toEmail, String recruiterName,
+                                              String jobTitle, boolean approved, String reason) {
+        String recName = (recruiterName == null || recruiterName.isBlank()) ? "Recruiter" : recruiterName;
+        String decisionVi = approved ? "DA DUOC PHE DUYET" : "DA BI TU CHOI";
+        String rejectReasonBlock = (!approved && reason != null && !reason.isBlank())
+                ? "Ly do tu choi: " + reason
+                : "";
+
+        Map<String, String> variables = new HashMap<>();
+        variables.put("Recruiter_Name", recName);
+        variables.put("Full_Name", recName);
+        variables.put("Job_Title", jobTitle != null ? jobTitle : "");
+        variables.put("Manager_Name", "Hiring Manager");
+        variables.put("Decision", decisionVi);
+        variables.put("Reject_Reason_Block", rejectReasonBlock);
+        variables.put("Job_Link", "");
+        variables.put("Company", productName);
+
+        sendTemplateEmail(toEmail, "EM-03", variables);
+    }
+
+    @Override
+    public void sendTemplateEmail(String toEmail, String templateCode, Map<String, String> variables) {
+        EmailTemplate template = emailTemplateRepository
+                .findByCodeAndStatus(templateCode, EmailTemplateStatus.ACTIVE)
+                .or(() -> emailTemplateRepository.findByCode(templateCode))
+                .orElseThrow(() -> new ResourceNotFoundException(ErrorCode.EMAIL_TEMPLATE_NOT_FOUND, templateCode));
+
+        String subject = renderTemplate(template.getSubjectTemplate(), variables);
+        String html = renderTemplate(template.getBodyTemplate(), variables);
+        String plainText = htmlToPlainText(html);
+
+        send(toEmail, subject, plainText, html);
+    }
+
+    private String renderTemplate(String template, Map<String, String> variables) {
+        if (template == null) {
+            return "";
+        }
+        String result = template;
+        if (variables != null) {
+            for (Map.Entry<String, String> entry : variables.entrySet()) {
+                if (entry.getKey() != null) {
+                    String placeholder = "{{" + entry.getKey() + "}}";
+                    String val = entry.getValue() != null ? entry.getValue() : "";
+                    result = result.replace(placeholder, val);
+                }
+            }
+        }
+        // Remove any remaining unresolved {{...}} placeholders
+        return result.replaceAll("\\{\\{[^}]+}}", "");
+    }
+
+    private String htmlToPlainText(String html) {
+        if (html == null) {
+            return "";
+        }
+        return html
+                .replaceAll("(?i)<br\\s*/?>", "\n")
+                .replaceAll("(?i)</p>", "\n\n")
+                .replaceAll("(?i)</li>", "\n")
+                .replaceAll("(?i)</tr>", "\n")
+                .replaceAll("(?i)</div>", "\n")
+                .replaceAll("<[^>]+>", "")
+                .replace("&nbsp;", " ")
+                .replace("&amp;", "&")
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&quot;", "\"")
+                .replace("&#39;", "'")
+                .replaceAll("\n{3,}", "\n\n")
+                .trim();
+    }
+
+    private void send(String toEmail, String subject, String plainText, String html) {
         try {
             MimeMessage message = mailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(message, false, "UTF-8");
+            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
             helper.setFrom(fromAddress);
             helper.setTo(toEmail);
             helper.setSubject(subject);
-            helper.setText(html, true);
+            helper.setText(plainText, html);
             mailSender.send(message);
             log.info("Sent email to {}: {}", LogMaskUtils.maskEmail(toEmail), subject);
         } catch (Exception e) {
@@ -79,6 +182,24 @@ public class EmailServiceImpl implements EmailService {
             // original HTTP request (the row was already committed independently).
             throw new EmailDeliveryException(e);
         }
+    }
+
+    @Override
+    public void sendJobSubmittedForApprovalEmail(String toEmail, String hiringManagerName,
+                                                  String jobTitle, String recruiterName) {
+        String managerName = (hiringManagerName == null || hiringManagerName.isBlank()) ? "Hiring Manager" : hiringManagerName;
+        String recName = (recruiterName == null || recruiterName.isBlank()) ? "Mot Recruiter" : recruiterName;
+
+        Map<String, String> variables = new HashMap<>();
+        variables.put("Manager_Name", managerName);
+        variables.put("Recruiter_Name", recName);
+        variables.put("Job_Title", jobTitle != null ? jobTitle : "");
+        variables.put("Department_Name", "phong ban cua ban");
+        variables.put("Openings", "mot so");
+        variables.put("Job_Approval_Link", "");
+        variables.put("Company", productName);
+
+        sendTemplateEmail(toEmail, "EM-02", variables);
     }
 
     /** Wraps any checked/unchecked failure from the underlying mail transport. */

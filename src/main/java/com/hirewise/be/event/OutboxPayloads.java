@@ -26,4 +26,53 @@ public final class OutboxPayloads {
                 "fullName", fullName == null ? "" : fullName,
                 "ipAddress", ipAddress == null ? "" : ipAddress);
     }
+
+    /** Payload for {@link OutboxEventType#APPLICATION_CONFIRMATION_EMAIL} - keys read back by {@link OutboxDispatcher}. */
+    public static Map<String, Object> applicationConfirmationEmail(String email, String fullName, String jobTitle) {
+        return Map.of(
+                "email", email,
+                "fullName", fullName == null ? "" : fullName,
+                "jobTitle", jobTitle == null ? "" : jobTitle);
+    }
+
+    /**
+     * Payload for {@link OutboxEventType#JOB_APPROVAL_DECISION_EMAIL} (EM-03, UC-15).
+     * Notifies the Recruiter that their job position was either approved or rejected.
+     *
+     * @param email         recruiter's email address
+     * @param recruiterName recruiter's full name (may be null/blank)
+     * @param jobTitle      title of the job position being decided on
+     * @param approved      {@code true} = Approved, {@code false} = Rejected
+     * @param reason        rejection reason; ignored (and may be null) when {@code approved=true}
+     */
+    public static Map<String, Object> jobApprovalDecisionEmail(String email, String recruiterName,
+                                                                String jobTitle, boolean approved,
+                                                                String reason) {
+        java.util.HashMap<String, Object> payload = new java.util.HashMap<>();
+        payload.put("email", email == null ? "" : email);
+        payload.put("recruiterName", recruiterName == null ? "" : recruiterName);
+        payload.put("jobTitle", jobTitle == null ? "" : jobTitle);
+        payload.put("approved", approved);
+        payload.put("reason", reason == null ? "" : reason);
+        return java.util.Collections.unmodifiableMap(payload);
+    }
+
+    /**
+     * Payload for {@link OutboxEventType#JOB_SUBMITTED_FOR_APPROVAL_EMAIL} (EM-02, UC-13).
+     * Notifies a Hiring Manager that a Job Position was submitted and needs their review.
+     *
+     * @param email             Hiring Manager's email address
+     * @param hiringManagerName Hiring Manager's full name (may be null/blank)
+     * @param jobTitle          title of the job position submitted for approval
+     * @param recruiterName     full name of the Recruiter who submitted it (may be null/blank)
+     */
+    public static Map<String, Object> jobSubmittedForApprovalEmail(
+            String email, String hiringManagerName, String jobTitle, String recruiterName) {
+        return Map.of(
+                "email", email == null ? "" : email,
+                "hiringManagerName", hiringManagerName == null ? "" : hiringManagerName,
+                "jobTitle", jobTitle == null ? "" : jobTitle,
+                "recruiterName", recruiterName == null ? "" : recruiterName);
+    }
 }
+

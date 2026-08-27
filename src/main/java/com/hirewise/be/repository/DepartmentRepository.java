@@ -31,4 +31,14 @@ public interface DepartmentRepository extends JpaRepository<Department, Long> {
             SELECT department_id FROM dept_tree
             """, nativeQuery = true)
     List<Long> findSelfAndDescendantIds(@Param("rootId") Long rootId);
+
+    /**
+     * UC-02/UC-03: departments offered in the frontend's department
+     * dropdowns (create user, assign access scope). Inactive departments
+     * are excluded - they're kept for historical reporting, not for new
+     * assignments.
+     *
+     * @return active departments ordered by name for a stable, readable dropdown
+     */
+    List<Department> findByActiveTrueOrderByNameAsc();
 }

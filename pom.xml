@@ -156,6 +156,24 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <!-- Force JVM default timezone to UTC -->
+                    <jvmArguments>-Duser.timezone=UTC</jvmArguments>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!-- Surefire forks a separate JVM for `mvn test`, which does NOT
+                         inherit spring-boot-maven-plugin's jvmArguments above - without
+                         this, @SpringBootTest/Testcontainers tests (e.g.
+                         HireWiseBeApplicationTests) fail Flyway's first connection with
+                         "invalid value for parameter TimeZone: Asia/Saigon" on a
+                         Vietnam-locale Windows host, for the same reason documented on
+                         the spring-boot-maven-plugin entry above. -->
+                    <argLine>-Duser.timezone=UTC</argLine>
+                </configuration>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

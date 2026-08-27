@@ -42,7 +42,7 @@ public class UserAccessScope {
     private Department department;
 
     /**
-     * For {@code scope_type=JOB}: the raw id of the job_postings row. Not
+     * For {@code scope_type=JOB}: the raw id of the job_positions row. Not
      * mapped as a JPA relationship, to avoid a two-way dependency cycle
      * between the two entities just for this one scope field.
      */
