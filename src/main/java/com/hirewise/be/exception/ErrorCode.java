@@ -84,6 +84,11 @@ public enum ErrorCode {
     REJECTION_REASON_INACTIVE("error.rejection_reason_inactive"),
     PIPELINE_MISSING_TERMINAL_REJECTED_STAGE("error.pipeline_missing_terminal_rejected_stage"),
 
+    // UC-20 File View URL
+    APPLICATION_FILE_NOT_FOUND("error.application_file_not_found"),
+    /** BR-STORAGE-02: file is queued locally and not yet synced to Cloud Storage. */
+    FILE_NOT_YET_AVAILABLE("error.file_not_yet_available"),
+
     ;
 
     private final String key;

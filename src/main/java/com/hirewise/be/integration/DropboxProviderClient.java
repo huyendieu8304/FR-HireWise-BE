@@ -179,6 +179,48 @@ public class DropboxProviderClient implements CloudStorageProviderClient {
         return value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
+    @Override
+    public String getViewUrl(String accessToken, String externalFileId) {
+        // Dropbox files/get_temporary_link returns a direct HTTPS link valid for
+        // approximately 4 hours. The path argument accepts both "/folder/file.pdf"
+        // paths and "id:..." file ids - since externalFileId is the Dropbox file id
+        // returned by uploadFile (response["id"]), we pass it directly.
+        try {
+            Map<String, Object> body = Map.of("path", externalFileId);
+            Map<?, ?> response = apiClient.post()
+                    .uri("/files/get_temporary_link")
+                    .headers(headers -> headers.setBearerAuth(accessToken))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(body)
+                    .retrieve()
+                    .body(Map.class);
+            if (response == null || !response.containsKey("link")) {
+                throw new IntegrationConnectException(
+                        "Dropbox did not return a temporary link for file " + externalFileId);
+            }
+            return (String) response.get("link");
+        } catch (RestClientException e) {
+            throw new IntegrationConnectException("Failed to get Dropbox temporary link for file " + externalFileId, e);
+        }
+    }
+
+    @Override
+    public byte[] downloadFile(String accessToken, String externalFileId) {
+        try {
+            String apiArg = "{\"path\":\"" + escapeJson(externalFileId) + "\"}";
+            return contentClient.post()
+                    .uri("/files/download")
+                    .headers(headers -> {
+                        headers.setBearerAuth(accessToken);
+                        headers.set("Dropbox-API-Arg", apiArg);
+                    })
+                    .retrieve()
+                    .body(byte[].class);
+        } catch (RestClientException e) {
+            throw new IntegrationConnectException("Failed to download file from Dropbox: " + externalFileId, e);
+        }
+    }
+
     private void requireConfigured() {
         if (clientId == null || clientId.isBlank() || clientSecret == null || clientSecret.isBlank()) {
             throw new IntegrationConnectException(

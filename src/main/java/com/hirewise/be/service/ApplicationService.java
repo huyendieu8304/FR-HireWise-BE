@@ -9,6 +9,7 @@ import com.hirewise.be.domain.ApplicationRejection;
 import com.hirewise.be.domain.ApplicationStageHistory;
 import com.hirewise.be.domain.JobPosition;
 import com.hirewise.be.dto.response.ApplicationDetailResponseDto;
+import com.hirewise.be.dto.response.FileDownloadResponseDto;
 import com.hirewise.be.exception.ErrorCode;
 import com.hirewise.be.exception.ResourceNotFoundException;
 import com.hirewise.be.mapper.ApplicationMapper;
@@ -41,6 +42,7 @@ public class ApplicationService {
     ApplicationStageHistoryRepository applicationStageHistoryRepository;
     ApplicationRejectionRepository applicationRejectionRepository;
     AccessControlService accessControlService;
+    FileStorageService fileStorageService;
 
     /**
      * UC-20 main flow: assembles the Applicant Card - candidate contact/status
@@ -70,5 +72,69 @@ public class ApplicationService {
                 applicationRejectionRepository.findByApplication_Id(applicationId).orElse(null);
 
         return ApplicationMapper.toDetailDto(application, files, history, rejection);
+    }
+
+    /**
+     * UC-20 file view: returns a short-lived URL to view or download one of an
+     * Application's attached files directly from Cloud Storage (Google Drive
+     * webViewLink / Dropbox temporary link).
+     * <p>
+     * Caller must have {@code APPLICATION_VIEW} scoped to the application's
+     * department. If the file is still queued locally (BR-STORAGE-02),
+     * {@link com.hirewise.be.exception.BadRequestException} is thrown with
+     * {@link ErrorCode#FILE_NOT_YET_AVAILABLE}.
+     *
+     * @param applicationId id of the parent Application
+     * @param fileId        id of the ApplicationFile record
+     * @param currentUser   authenticated caller
+     * @return a view/download URL valid for a short time (provider-dependent)
+     * @throws ResourceNotFoundException if the application or file is not found,
+     *                                   or the file does not belong to this application
+     */
+    @Transactional(readOnly = true)
+    public String getFileViewUrl(UUID applicationId, Long fileId, CurrentUser currentUser) {
+        Application application = applicationRepository.findById(applicationId)
+                .orElseThrow(() -> new ResourceNotFoundException(ErrorCode.APPLICATION_NOT_FOUND, applicationId));
+
+        JobPosition job = application.getJobPosition();
+        Long departmentId = job.getDepartment() != null ? job.getDepartment().getId() : null;
+        accessControlService.checkAccess(currentUser, PermissionCodes.APPLICATION_VIEW,
+                ResourceContext.job(job.getId(), departmentId));
+
+        ApplicationFile applicationFile = applicationFileRepository.findById(fileId)
+                .orElseThrow(() -> new ResourceNotFoundException(ErrorCode.APPLICATION_FILE_NOT_FOUND, fileId));
+
+        // Sanity check: the file must belong to the application in the URL.
+        if (!applicationFile.getApplication().getId().equals(applicationId)) {
+            throw new ResourceNotFoundException(ErrorCode.APPLICATION_FILE_NOT_FOUND, fileId);
+        }
+
+        return fileStorageService.getViewUrl(applicationFile.getFile());
+    }
+
+    @Transactional(readOnly = true)
+    public FileDownloadResponseDto downloadApplicationFile(UUID applicationId, Long fileId, CurrentUser currentUser) {
+        Application application = applicationRepository.findById(applicationId)
+                .orElseThrow(() -> new ResourceNotFoundException(ErrorCode.APPLICATION_NOT_FOUND, applicationId));
+
+        JobPosition job = application.getJobPosition();
+        Long departmentId = job.getDepartment() != null ? job.getDepartment().getId() : null;
+        accessControlService.checkAccess(currentUser, PermissionCodes.APPLICATION_VIEW,
+                ResourceContext.job(job.getId(), departmentId));
+
+        ApplicationFile applicationFile = applicationFileRepository.findById(fileId)
+                .orElseThrow(() -> new ResourceNotFoundException(ErrorCode.APPLICATION_FILE_NOT_FOUND, fileId));
+
+        // Sanity check: the file must belong to the application in the URL.
+        if (!applicationFile.getApplication().getId().equals(applicationId)) {
+            throw new ResourceNotFoundException(ErrorCode.APPLICATION_FILE_NOT_FOUND, fileId);
+        }
+
+        byte[] content = fileStorageService.downloadFile(applicationFile.getFile());
+        return new FileDownloadResponseDto(
+                applicationFile.getFile().getFileName(),
+                applicationFile.getFile().getMimeType(),
+                content
+        );
     }
 }

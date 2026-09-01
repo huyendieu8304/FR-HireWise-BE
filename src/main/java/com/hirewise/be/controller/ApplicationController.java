@@ -6,6 +6,7 @@ import com.hirewise.be.dto.request.MoveApplicationStageRequestDto;
 import com.hirewise.be.dto.request.RejectApplicationRequestDto;
 import com.hirewise.be.dto.response.ApplicationDetailResponseDto;
 import com.hirewise.be.dto.response.ApplicationRejectionResponseDto;
+import com.hirewise.be.dto.response.FileDownloadResponseDto;
 import com.hirewise.be.dto.response.MoveApplicationStageResponseDto;
 import com.hirewise.be.security.CurrentUser;
 import com.hirewise.be.security.CurrentUserPrincipal;
@@ -16,6 +17,8 @@ import jakarta.validation.Valid;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.experimental.FieldDefaults;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -103,5 +106,45 @@ public class ApplicationController {
             @Valid @RequestBody RejectApplicationRequestDto request,
             @CurrentUserPrincipal CurrentUser currentUser) {
         return ResponseEntity.ok(applicationRejectionService.reject(applicationId, request, currentUser));
+    }
+
+    /**
+     * UC-20 file view: returns a short-lived URL to view or download one of an
+     * Application's attached files from Cloud Storage. The caller opens this
+     * URL in a new tab to read the CV/cover-letter/portfolio without the backend
+     * having to proxy the file bytes.
+     * <p>
+     * RBAC: {@code APPLICATION_VIEW} scoped to the application's job's department
+     * (same gate as {@link #getDetail}).
+     *
+     * @param applicationId id of the parent Application
+     * @param fileId        id of the ApplicationFile record (from the detail response)
+     * @param currentUser   authenticated caller
+     * @return {@code { "viewUrl": "https://..." }}
+     */
+    @GetMapping("/{applicationId}/files/{fileId}/view-url")
+    public ResponseEntity<java.util.Map<String, String>> getFileViewUrl(
+            @PathVariable UUID applicationId,
+            @PathVariable Long fileId,
+            @CurrentUserPrincipal CurrentUser currentUser) {
+        String viewUrl = applicationService.getFileViewUrl(applicationId, fileId, currentUser);
+        return ResponseEntity.ok(java.util.Map.of("viewUrl", viewUrl));
+    }
+
+    /**
+     * Proxies the download of a file through the backend. This is used
+     * so internal users don't need direct Google Drive/Dropbox permissions
+     * on the actual file.
+     */
+    @GetMapping("/{applicationId}/files/{fileId}/download")
+    public ResponseEntity<byte[]> downloadFile(
+            @PathVariable UUID applicationId,
+            @PathVariable Long fileId,
+            @CurrentUserPrincipal CurrentUser currentUser) {
+        FileDownloadResponseDto result = applicationService.downloadApplicationFile(applicationId, fileId, currentUser);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + result.fileName() + "\"")
+                .contentType(MediaType.parseMediaType(result.mimeType()))
+                .body(result.content());
     }
 }

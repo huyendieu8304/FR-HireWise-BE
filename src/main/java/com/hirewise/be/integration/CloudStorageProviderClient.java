@@ -98,4 +98,38 @@ public interface CloudStorageProviderClient {
      * @throws IntegrationConnectException if the upload fails (expired token, network error...)
      */
     String uploadFile(String accessToken, String rootFolderId, String subfolderName, String fileName, String mimeType, byte[] content);
+
+    /**
+     * Returns a URL that lets an authenticated internal user view the file
+     * directly in their browser (or download it) without exposing long-lived
+     * credentials.
+     * <p>
+     * Google Drive: returns the Drive {@code webViewLink} (no extra API call
+     * needed — the file metadata already carries it).
+     * Dropbox: creates a short-lived temporary download link via
+     * {@code files/get_temporary_link} (expires after ~4 hours per Dropbox
+     * docs; no persistent shared link is created, so no public exposure).
+     *
+     * @param accessToken    a still-valid access token for the connection
+     * @param externalFileId the provider-side id stored in
+     *                       {@code files.external_file_id} (Google Drive file
+     *                       id OR Dropbox file id starting with "id:")
+     * @return a URL the caller can redirect/open to view the file
+     * @throws IntegrationConnectException if the provider call fails
+     */
+    String getViewUrl(String accessToken, String externalFileId);
+
+    /**
+     * Downloads the file content directly from the Cloud Storage provider.
+     * This is used to proxy the file bytes through the backend so the client
+     * doesn't need its own provider-level permissions (e.g. Google Drive
+     * requires the user's browser session to have read access if we just
+     * redirect them to the webViewLink).
+     *
+     * @param accessToken    a still-valid access token for the connection
+     * @param externalFileId the provider-side id
+     * @return the raw file bytes
+     * @throws IntegrationConnectException if the provider call fails
+     */
+    byte[] downloadFile(String accessToken, String externalFileId);
 }
