@@ -272,10 +272,47 @@ public class GoogleDriveProviderClient implements CloudStorageProviderClient {
         }
     }
 
+    @Override
+    public byte[] downloadFile(String accessToken, String externalFileId) {
+        try {
+            return driveClient.get()
+                    .uri(uriBuilder -> uriBuilder
+                            .path("/files/{id}")
+                            .queryParam("alt", "media")
+                            .build(externalFileId))
+                    .headers(headers -> headers.setBearerAuth(accessToken))
+                    .retrieve()
+                    .body(byte[].class);
+        } catch (RestClientException e) {
+            throw new IntegrationConnectException("Failed to download file from Google Drive: " + externalFileId, e);
+        }
+    }
+
     private void requireConfigured() {
         if (clientId == null || clientId.isBlank() || clientSecret == null || clientSecret.isBlank()) {
             throw new IntegrationConnectException(
                     "Google Drive integration is not configured (app.integration.google-drive.client-id/client-secret)");
+        }
+    }
+
+    @Override
+    public String getViewUrl(String accessToken, String externalFileId) {
+        try {
+            Map<?, ?> response = driveClient.get()
+                    .uri(uriBuilder -> uriBuilder
+                            .path("/files/{id}")
+                            .queryParam("fields", "webViewLink")
+                            .build(externalFileId))
+                    .headers(headers -> headers.setBearerAuth(accessToken))
+                    .retrieve()
+                    .body(Map.class);
+            if (response == null || !response.containsKey("webViewLink")) {
+                throw new IntegrationConnectException(
+                        "Google Drive did not return a webViewLink for file " + externalFileId);
+            }
+            return (String) response.get("webViewLink");
+        } catch (RestClientException e) {
+            throw new IntegrationConnectException("Failed to get Google Drive view URL for file " + externalFileId, e);
         }
     }
 }

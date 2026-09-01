@@ -22,4 +22,13 @@ public interface ApplicationFileRepository extends JpaRepository<ApplicationFile
      * @return the matching application files, most recent first is not guaranteed
      */
     List<ApplicationFile> findByApplication_IdAndFileRole(UUID applicationId, ApplicationFileRole fileRole);
+
+    /**
+     * UC-20: every file attached to one Application (CV, cover letter,
+     * portfolio), for the Applicant Card detail view.
+     *
+     * @param applicationId application id
+     * @return the application's files, in no particular guaranteed order
+     */
+    List<ApplicationFile> findByApplication_Id(UUID applicationId);
 }

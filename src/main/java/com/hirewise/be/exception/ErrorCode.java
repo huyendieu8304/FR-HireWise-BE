@@ -79,6 +79,16 @@ public enum ErrorCode {
     JOB_MISSING_REQUIRED_FIELDS_FOR_SUBMIT("error.job_missing_required_fields_for_submit"),
     JOB_PIPELINE_TEMPLATE_NOT_ACTIVE("error.job_pipeline_template_not_active"),
 
+    // UC-29 Reject Application (BR-REJ-01/03)
+    REJECTION_REASON_NOT_FOUND("error.rejection_reason_not_found"),
+    REJECTION_REASON_INACTIVE("error.rejection_reason_inactive"),
+    PIPELINE_MISSING_TERMINAL_REJECTED_STAGE("error.pipeline_missing_terminal_rejected_stage"),
+
+    // UC-20 File View URL
+    APPLICATION_FILE_NOT_FOUND("error.application_file_not_found"),
+    /** BR-STORAGE-02: file is queued locally and not yet synced to Cloud Storage. */
+    FILE_NOT_YET_AVAILABLE("error.file_not_yet_available"),
+
     ;
 
     private final String key;

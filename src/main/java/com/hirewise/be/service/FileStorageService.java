@@ -20,6 +20,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
+import com.hirewise.be.exception.BadRequestException;
+import com.hirewise.be.exception.ErrorCode;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
@@ -199,5 +201,68 @@ public class FileStorageService {
             // SHA-256 is guaranteed available on every JVM - a programming error, not a business one.
             throw new IllegalStateException(e);
         }
+    }
+
+    /**
+     * Returns a URL the caller can use to view or download a previously uploaded
+     * file directly from its Cloud Storage provider.
+     * <p>
+     * Throws {@link BadRequestException} (HTTP 503 semantics via
+     * {@code FILE_NOT_YET_AVAILABLE}) when the file is still in the local
+     * pending-upload queue (BR-STORAGE-02) and has not yet been synced to the
+     * actual provider — the client should display a friendly error in this case.
+     *
+     * @param storedFile the file whose view URL is needed
+     * @return a short-lived view/download URL from the provider
+     * @throws BadRequestException if the file is still queued locally (PENDING_LOCAL)
+     * @throws IntegrationConnectException if the provider call fails
+     */
+    public String getViewUrl(StoredFile storedFile) {
+        String externalFileId = storedFile.getExternalFileId();
+        if (externalFileId != null && externalFileId.startsWith(PENDING_LOCAL_PREFIX)) {
+            // BR-STORAGE-02: file hasn't been pushed to the real provider yet.
+            throw new BadRequestException(ErrorCode.FILE_NOT_YET_AVAILABLE);
+        }
+
+        StorageConnection connection = storedFile.getStorageConnection();
+        OauthToken token = oauthTokenRepository
+                .findByIntegrationConnection_Id(connection.getIntegrationConnection().getId())
+                .orElseThrow(() -> new IllegalStateException(
+                        "No OAuth token stored for Cloud Storage connection id=" + connection.getId()));
+        String accessToken = tokenCipher.decrypt(token.getAccessTokenEncrypted());
+        CloudStorageProviderClient client = providerClients.get(connection.getProvider());
+        if (client == null) {
+            throw new IllegalStateException("No CloudStorageProviderClient registered for provider " + connection.getProvider());
+        }
+        return client.getViewUrl(accessToken, externalFileId);
+    }
+
+    /**
+     * Downloads the raw file bytes directly from Cloud Storage, proxying them
+     * through the backend.
+     *
+     * @param storedFile the file to download
+     * @return the raw bytes
+     * @throws BadRequestException if the file is still queued locally
+     * @throws IntegrationConnectException if the provider call fails
+     */
+    public byte[] downloadFile(StoredFile storedFile) {
+        String externalFileId = storedFile.getExternalFileId();
+        if (externalFileId != null && externalFileId.startsWith(PENDING_LOCAL_PREFIX)) {
+            // BR-STORAGE-02: file hasn't been pushed to the real provider yet.
+            throw new BadRequestException(ErrorCode.FILE_NOT_YET_AVAILABLE);
+        }
+
+        StorageConnection connection = storedFile.getStorageConnection();
+        OauthToken token = oauthTokenRepository
+                .findByIntegrationConnection_Id(connection.getIntegrationConnection().getId())
+                .orElseThrow(() -> new IllegalStateException(
+                        "No OAuth token stored for Cloud Storage connection id=" + connection.getId()));
+        String accessToken = tokenCipher.decrypt(token.getAccessTokenEncrypted());
+        CloudStorageProviderClient client = providerClients.get(connection.getProvider());
+        if (client == null) {
+            throw new IllegalStateException("No CloudStorageProviderClient registered for provider " + connection.getProvider());
+        }
+        return client.downloadFile(accessToken, externalFileId);
     }
 }

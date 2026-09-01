@@ -50,4 +50,17 @@ public interface EmailService {
      */
     void sendJobSubmittedForApprovalEmail(String toEmail, String hiringManagerName,
                                           String jobTitle, String recruiterName);
+
+    /**
+     * EM-09 (UC-30, BR-REJ-02): automatic polite rejection email sent right after a
+     * Recruiter confirms UC-29's Refused decision.
+     *
+     * @param toEmail       candidate's email address
+     * @param candidateName candidate's full name
+     * @param jobTitle      title of the job the candidate was rejected from
+     * @param reasonLabel   standardized rejection reason's display label (BR-REJ-01)
+     * @param customMessage optional Recruiter-written note appended on top of the reason; may be null/blank
+     */
+    void sendApplicationRejectionEmail(String toEmail, String candidateName,
+                                       String jobTitle, String reasonLabel, String customMessage);
 }
