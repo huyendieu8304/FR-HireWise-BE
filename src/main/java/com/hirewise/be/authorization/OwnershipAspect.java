@@ -1,6 +1,7 @@
 package com.hirewise.be.authorization;
 
 import com.hirewise.be.exception.NotResourceOwnerException;
+import com.hirewise.be.repository.UserAccessScopeRepository;
 import com.hirewise.be.security.CurrentUser;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
@@ -35,7 +36,7 @@ public class OwnershipAspect {
     private final OwnershipPolicyRegistry policyRegistry;
     private final RolePermissionCache rolePermissionCache;
     private final AccessControlService accessControlService;
-    private final com.hirewise.be.repository.UserAccessScopeRepository userAccessScopeRepository;
+    private final UserAccessScopeRepository userAccessScopeRepository;
     private final java.time.Clock clock;
     private final ParameterNameDiscoverer parameterNameDiscoverer = new DefaultParameterNameDiscoverer();
 
