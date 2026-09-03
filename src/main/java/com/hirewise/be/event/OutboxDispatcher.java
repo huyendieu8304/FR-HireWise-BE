@@ -100,6 +100,19 @@ public class OutboxDispatcher {
                         requireField(payload, "offerLink", event.getEventType()),
                         requireField(payload, "expiryDate", event.getEventType()),
                         payload.path("recruiterName").asText(null));
+                case OFFER_OTP_EMAIL -> emailService.sendOfferOtpEmail(
+                        requireField(payload, "email", event.getEventType()),
+                        payload.path("candidateName").asText(null),
+                        requireField(payload, "jobTitle", event.getEventType()),
+                        requireField(payload, "otpCode", event.getEventType()),
+                        payload.path("ttlMinutes").asLong(5));
+                case OFFER_SIGNED_EMAIL -> emailService.sendOfferSignedEmail(
+                        requireField(payload, "email", event.getEventType()),
+                        payload.path("candidateName").asText(null),
+                        requireField(payload, "jobTitle", event.getEventType()),
+                        requireField(payload, "signedAt", event.getEventType()),
+                        payload.path("startDate").asText(null),
+                        payload.path("signedFileLink").asText(null));
             }
             event.setStatus(OutboxEventStatus.SENT);
             event.setProcessedAt(Instant.now(clock));

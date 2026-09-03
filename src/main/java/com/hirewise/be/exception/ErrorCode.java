@@ -103,6 +103,21 @@ public enum ErrorCode {
     /** ME-32: the answer deadline has passed (BR-OFFER-02). */
     OFFER_EXPIRED("error.offer_expired"),
 
+    // UC-38 Open the secure Offer link + OTP (BR-OFFER-03, ME-32/ME-33)
+    /**
+     * The link is unknown, malformed, already used, or its secret does not
+     * match. Deliberately ONE code for every one of those causes so a caller
+     * probing tokens learns nothing about which part was wrong.
+     */
+    OFFER_LINK_INVALID("error.offer_link_invalid"),
+    /** ME-33: wrong or expired one-time code. */
+    OFFER_OTP_INVALID("error.offer_otp_invalid"),
+    /** Too many wrong codes for the current OTP - a fresh one must be requested. */
+    OFFER_OTP_ATTEMPTS_EXCEEDED("error.offer_otp_attempts_exceeded"),
+    OFFER_OTP_RESEND_LIMIT("error.offer_otp_resend_limit"),
+    /** BR-OFFER-03: contract terms requested before any OTP was verified. */
+    OFFER_OTP_REQUIRED("error.offer_otp_required"),
+
     ;
 
     private final String key;

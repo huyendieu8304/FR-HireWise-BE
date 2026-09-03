@@ -77,4 +77,32 @@ public interface EmailService {
      */
     void sendOfferEmail(String toEmail, String candidateName, String jobTitle,
                         String offerLink, String expiryDate, String recruiterName);
+
+    /**
+     * EM-OTP-OFFER (UC-38 step 2, BR-OFFER-03): the one-time code the
+     * candidate must enter before any contract terms are shown.
+     *
+     * @param toEmail       candidate's email address
+     * @param candidateName candidate's full name
+     * @param jobTitle      title of the job being offered
+     * @param otpCode       the 6-digit one-time code
+     * @param ttlMinutes    how long the code stays valid
+     */
+    void sendOfferOtpEmail(String toEmail, String candidateName, String jobTitle,
+                           String otpCode, long ttlMinutes);
+
+    /**
+     * EM-12 (UC-39 step 7): confirms the offer was signed and points at the
+     * stored signed PDF.
+     *
+     * @param toEmail        candidate's email address
+     * @param candidateName  candidate's full name
+     * @param jobTitle       title of the job just accepted
+     * @param signedAt       signing timestamp, already formatted for display
+     * @param startDate      agreed start date, already formatted for display
+     * @param signedFileLink where the signed PDF can be retrieved; may be blank
+     *                        while the file is still queued locally (BR-STORAGE-02)
+     */
+    void sendOfferSignedEmail(String toEmail, String candidateName, String jobTitle,
+                              String signedAt, String startDate, String signedFileLink);
 }

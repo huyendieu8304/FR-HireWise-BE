@@ -237,6 +237,43 @@ public class EmailServiceImpl implements EmailService {
         sendTemplateEmail(toEmail, "EM-11", variables);
     }
 
+    @Override
+    public void sendOfferOtpEmail(String toEmail, String candidateName, String jobTitle,
+                                   String otpCode, long ttlMinutes) {
+        String candName = (candidateName == null || candidateName.isBlank()) ? "Ung vien" : candidateName;
+
+        Map<String, String> variables = new HashMap<>();
+        variables.put("Candidate_Name", candName);
+        variables.put("Job_Title", jobTitle != null ? jobTitle : "");
+        variables.put("Company", productName);
+        variables.put("Otp_Code", otpCode != null ? otpCode : "");
+        variables.put("Otp_Ttl_Minutes", String.valueOf(ttlMinutes));
+
+        sendTemplateEmail(toEmail, "EM-OTP-OFFER", variables);
+    }
+
+    @Override
+    public void sendOfferSignedEmail(String toEmail, String candidateName, String jobTitle,
+                                      String signedAt, String startDate, String signedFileLink) {
+        String candName = (candidateName == null || candidateName.isBlank()) ? "Ung vien" : candidateName;
+        // BR-STORAGE-02: the signed PDF may still be queued locally, in which
+        // case there is no link yet - say so rather than emailing a dead URL.
+        String fileLink = (signedFileLink == null || signedFileLink.isBlank())
+                ? "Ban hop dong da ky se duoc gui bo sung trong thoi gian som nhat."
+                : signedFileLink;
+
+        Map<String, String> variables = new HashMap<>();
+        variables.put("Candidate_Name", candName);
+        variables.put("Full_Name", candName);
+        variables.put("Job_Title", jobTitle != null ? jobTitle : "");
+        variables.put("Company", productName);
+        variables.put("Signed_At", signedAt != null ? signedAt : "");
+        variables.put("Start_Date", startDate != null ? startDate : "");
+        variables.put("Signed_File_Link", fileLink);
+
+        sendTemplateEmail(toEmail, "EM-12", variables);
+    }
+
     /** Wraps any checked/unchecked failure from the underlying mail transport. */
     public static class EmailDeliveryException extends RuntimeException {
         public EmailDeliveryException(Throwable cause) {
