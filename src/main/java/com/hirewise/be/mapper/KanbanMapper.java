@@ -34,6 +34,7 @@ public final class KanbanMapper {
                 .status(application.getStatus())
                 .appliedAt(application.getAppliedAt())
                 .lastStageChangedAt(application.getLastStageChangedAt())
+                .aiMatchScore(application.getAiMatchScore())
                 .build();
     }
 
