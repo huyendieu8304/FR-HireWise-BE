@@ -89,6 +89,15 @@ public enum ErrorCode {
     /** BR-STORAGE-02: file is queued locally and not yet synced to Cloud Storage. */
     FILE_NOT_YET_AVAILABLE("error.file_not_yet_available"),
 
+    // UC-36 Generate an Offer Letter from a template (BR-OFFER-01/02, EX-01)
+    OFFER_TEMPLATE_NOT_FOUND("error.offer_template_not_found"),
+    OFFER_TEMPLATE_INACTIVE("error.offer_template_inactive"),
+    APPLICATION_NOT_IN_OFFER_STAGE("error.application_not_in_offer_stage"),
+    /** EX-01: the Application already has a DRAFT/SENT Offer (BR-OFFER-01). */
+    OFFER_ALREADY_ACTIVE("error.offer_already_active"),
+    OFFER_EXPIRY_BEFORE_START_DATE("error.offer_expiry_before_start_date"),
+    OFFER_NOT_FOUND("error.offer_not_found"),
+
     ;
 
     private final String key;
