@@ -1,9 +1,13 @@
 package com.hirewise.be.controller;
 
+import com.hirewise.be.dto.request.SignOfferRequestDto;
 import com.hirewise.be.dto.request.VerifyOfferOtpRequestDto;
 import com.hirewise.be.dto.response.PublicOfferContentDto;
 import com.hirewise.be.dto.response.PublicOfferSummaryDto;
+import com.hirewise.be.security.ClientIpResolver;
 import com.hirewise.be.service.OfferAccessService;
+import com.hirewise.be.service.OfferSigningService;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
@@ -18,7 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * M18 - Offer & e-Signature, candidate-facing half: UC-38 (open the secure
- * link and verify the OTP before reading the contract).
+ * link and verify the OTP before reading the contract) and UC-39 (sign it).
  * <p>
  * <strong>These endpoints are deliberately outside RBAC.</strong> Candidates
  * have no account in this system (SRS section 3.1), so there is no
@@ -36,6 +40,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class PublicOfferController {
 
     OfferAccessService offerAccessService;
+    OfferSigningService offerSigningService;
 
     /**
      * UC-38 step 1: minimal detail shown before the OTP is verified - never
@@ -85,5 +90,24 @@ public class PublicOfferController {
     @GetMapping("/{token}/content")
     public ResponseEntity<PublicOfferContentDto> getContent(@PathVariable String token) {
         return ResponseEntity.ok(offerAccessService.getContent(token));
+    }
+
+    /**
+     * UC-39 main flow: the candidate signs. The backend renders the signed
+     * PDF, records the signature evidence, locks the Offer and moves the
+     * Application to Hired (BR-OFFER-04).
+     *
+     * @param token       the raw link token from the emailed URL
+     * @param request     signing method plus the drawn image or typed name
+     * @param httpRequest used to record the signer's IP as signature evidence
+     * @return the offer's terms in their new Signed state
+     */
+    @PostMapping("/{token}/sign")
+    public ResponseEntity<PublicOfferContentDto> sign(
+            @PathVariable String token,
+            @Valid @RequestBody SignOfferRequestDto request,
+            HttpServletRequest httpRequest) {
+        String clientIp = ClientIpResolver.resolve(httpRequest);
+        return ResponseEntity.ok(offerSigningService.sign(token, request, clientIp));
     }
 }

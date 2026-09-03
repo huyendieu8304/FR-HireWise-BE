@@ -118,6 +118,15 @@ public enum ErrorCode {
     /** BR-OFFER-03: contract terms requested before any OTP was verified. */
     OFFER_OTP_REQUIRED("error.offer_otp_required"),
 
+    // UC-39 Electronic signature (BR-OFFER-04, EX-01/ME-34)
+    /** ME-34: [Hoan tat ky] pressed with an empty signature. */
+    OFFER_SIGNATURE_REQUIRED("error.offer_signature_required"),
+    OFFER_SIGNATURE_IMAGE_INVALID("error.offer_signature_image_invalid"),
+    /** BR-OFFER-04: a signed offer is locked - it can never be signed twice. */
+    OFFER_ALREADY_SIGNED("error.offer_already_signed"),
+    OFFER_NOT_SIGNABLE("error.offer_not_signable"),
+    PIPELINE_MISSING_TERMINAL_SUCCESS_STAGE("error.pipeline_missing_terminal_success_stage"),
+
     ;
 
     private final String key;
