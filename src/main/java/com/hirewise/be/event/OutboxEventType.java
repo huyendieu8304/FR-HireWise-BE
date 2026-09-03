@@ -17,6 +17,10 @@ public enum OutboxEventType {
     /** EM-05 (UC-24): interview invitation email sent to candidate. */
     INTERVIEW_INVITATION_EMAIL,
     /** EM-08 (UC-24): interview meeting invite sent to assigned interviewer. */
-    INTERVIEWER_ASSIGNED_EMAIL
+    INTERVIEWER_ASSIGNED_EMAIL,
+    /** EM-11 (UC-37 step 4): the secure Offer link plus the e-signature request. */
+    OFFER_SENT_EMAIL,
+
+    ;
 }
 

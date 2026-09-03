@@ -100,6 +100,31 @@ public enum ErrorCode {
     INTERVIEW_INTERVIEWER_INACTIVE("error.interview_interviewer_inactive"),
     INTERVIEW_TIME_IN_PAST("error.interview_time_in_past"),
 
+    // UC-18 Calendar integration (BR-INTEG-01/BR-INTEG-02)
+    CALENDAR_PROVIDER_UNSUPPORTED("error.calendar_provider_unsupported"),
+    CALENDAR_NOT_CONNECTED("error.calendar_not_connected"),
+    CALENDAR_TEST_CONNECTION_FAILED("error.calendar_test_connection_failed"),
+
+    // UC-24 Interview Scheduling
+    INTERVIEW_STAGE_NOT_INTERVIEW_TYPE("error.interview_stage_not_interview_type"),
+    INTERVIEW_INTERVIEWER_NOT_FOUND("error.interview_interviewer_not_found"),
+    INTERVIEW_INTERVIEWER_INACTIVE("error.interview_interviewer_inactive"),
+    INTERVIEW_TIME_IN_PAST("error.interview_time_in_past"),
+
+    // UC-36 Generate an Offer Letter from a template (BR-OFFER-01/02, EX-01)
+    OFFER_TEMPLATE_NOT_FOUND("error.offer_template_not_found"),
+    OFFER_TEMPLATE_INACTIVE("error.offer_template_inactive"),
+    APPLICATION_NOT_IN_OFFER_STAGE("error.application_not_in_offer_stage"),
+    /** EX-01: the Application already has a DRAFT/SENT Offer (BR-OFFER-01). */
+    OFFER_ALREADY_ACTIVE("error.offer_already_active"),
+    OFFER_EXPIRY_BEFORE_START_DATE("error.offer_expiry_before_start_date"),
+    OFFER_NOT_FOUND("error.offer_not_found"),
+
+    // UC-37 Send the Offer link + e-signature request (BR-OFFER-02/03)
+    OFFER_NOT_SENDABLE("error.offer_not_sendable"),
+    /** ME-32: the answer deadline has passed (BR-OFFER-02). */
+    OFFER_EXPIRED("error.offer_expired"),
+
     ;
 
     private final String key;

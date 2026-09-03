@@ -63,4 +63,18 @@ public interface EmailService {
      */
     void sendApplicationRejectionEmail(String toEmail, String candidateName,
                                        String jobTitle, String reasonLabel, String customMessage);
+
+    /**
+     * EM-11 (UC-37 step 4): the offer letter announcement carrying the
+     * candidate's secure link and the deadline to sign it (BR-OFFER-02/03).
+     *
+     * @param toEmail       candidate's email address
+     * @param candidateName candidate's full name
+     * @param jobTitle      title of the job being offered
+     * @param offerLink     full URL of the candidate's secure Offer page
+     * @param expiryDate    answer deadline, already formatted for display
+     * @param recruiterName full name of the Recruiter sending the offer
+     */
+    void sendOfferEmail(String toEmail, String candidateName, String jobTitle,
+                        String offerLink, String expiryDate, String recruiterName);
 }
