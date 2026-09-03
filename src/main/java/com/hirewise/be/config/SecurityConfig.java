@@ -160,6 +160,8 @@ public class SecurityConfig {
                     .requestMatchers("/api/auth/**").permitAll()
                     // hit by the Google/Dropbox OAuth redirect itself
                     .requestMatchers(HttpMethod.GET, "/api/integrations/cloud-storage/*/callback").permitAll()
+                    // hit by the Google Calendar / Outlook OAuth redirect (UC-18)
+                    .requestMatchers(HttpMethod.GET, "/api/integrations/calendar/*/callback").permitAll()
 
                     // Every other business endpoint only needs a valid access token at the URL
                     // level. Concrete permission/scope/ownership decisions (RBAC layers 2-4) are

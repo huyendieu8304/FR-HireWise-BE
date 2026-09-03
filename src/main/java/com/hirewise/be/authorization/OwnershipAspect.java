@@ -35,16 +35,22 @@ public class OwnershipAspect {
     private final OwnershipPolicyRegistry policyRegistry;
     private final RolePermissionCache rolePermissionCache;
     private final AccessControlService accessControlService;
+    private final com.hirewise.be.repository.UserAccessScopeRepository userAccessScopeRepository;
+    private final java.time.Clock clock;
     private final ParameterNameDiscoverer parameterNameDiscoverer = new DefaultParameterNameDiscoverer();
 
     public OwnershipAspect(OwnershipResolverRegistry resolverRegistry,
                             OwnershipPolicyRegistry policyRegistry,
                             RolePermissionCache rolePermissionCache,
-                            AccessControlService accessControlService) {
+                            AccessControlService accessControlService,
+                            com.hirewise.be.repository.UserAccessScopeRepository userAccessScopeRepository,
+                            java.time.Clock clock) {
         this.resolverRegistry = resolverRegistry;
         this.policyRegistry = policyRegistry;
         this.rolePermissionCache = rolePermissionCache;
         this.accessControlService = accessControlService;
+        this.userAccessScopeRepository = userAccessScopeRepository;
+        this.clock = clock;
     }
 
     /**
@@ -115,10 +121,18 @@ public class OwnershipAspect {
 
         // 4.2 Look up the ownership policy and compare the resource owner against the current user;
         // if every granting role requires ownership for this permission and the user isn't the
-        // owner, deny access (see OwnershipPolicyRegistry for the "any role wins" rule).
-        if (policyRegistry.requiresOwnership(requiresOwnership.permission(), grantingRoles)
-                && !Objects.equals(resolved.ownerId(), currentUser.userId())) {
-            throw new NotResourceOwnerException();
+        // owner, check if the user has a SYSTEM scope or the resource has no assigned owner.
+        if (policyRegistry.requiresOwnership(requiresOwnership.permission(), grantingRoles)) {
+            boolean isOwner = resolved.ownerId() != null && Objects.equals(resolved.ownerId(), currentUser.userId());
+            if (!isOwner) {
+                // If resource has no specific owner, or the user holds an active SYSTEM scope with canWrite=true, allow access
+                boolean hasSystemScope = userAccessScopeRepository.findActiveScopes(currentUser.userId(), java.time.Instant.now(clock))
+                        .stream()
+                        .anyMatch(s -> s.getScopeType() == com.hirewise.be.domain.ScopeType.SYSTEM && s.isCanWrite());
+                if (!hasSystemScope && resolved.ownerId() != null) {
+                    throw new NotResourceOwnerException();
+                }
+            }
         }
 
         // All authorization layers passed -> let the controller method run
