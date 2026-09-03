@@ -1,5 +1,6 @@
 package com.hirewise.be.repository;
 
+import com.hirewise.be.domain.ConnectionStatus;
 import com.hirewise.be.domain.IntegrationConnection;
 import com.hirewise.be.domain.IntegrationProvider;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -28,7 +29,8 @@ public interface IntegrationConnectionRepository extends JpaRepository<Integrati
      * which provider it is - only one is ever active at a time in the MVP.
      *
      * @param purpose e.g. {@code "CLOUD_STORAGE"}
+     * @param status  e.g. {@code ConnectionStatus.CONNECTED}
      * @return the most recent connection for this purpose, if any
      */
-    Optional<IntegrationConnection> findFirstByPurposeOrderByIdDesc(String purpose);
+    Optional<IntegrationConnection> findFirstByPurposeAndStatusOrderByIdDesc(String purpose, ConnectionStatus status);
 }
