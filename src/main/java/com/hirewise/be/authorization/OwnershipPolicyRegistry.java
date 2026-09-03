@@ -31,7 +31,11 @@ public class OwnershipPolicyRegistry {
             new Key(PermissionCodes.APPLICATION_MOVE_STAGE, "RECRUITER"), true,
             new Key(PermissionCodes.APPLICATION_REJECT, "RECRUITER"), true,
             new Key(PermissionCodes.SCORECARD_SUBMIT, "INTERVIEWER"), true,
-            new Key(PermissionCodes.SCORECARD_SUBMIT, "HIRING_MANAGER"), true
+            new Key(PermissionCodes.SCORECARD_SUBMIT, "HIRING_MANAGER"), true,
+            // UC-36/UC-37: only the Recruiter who owns the parent Job may make
+            // or send an Offer on it - same rule as APPLICATION_REJECT above.
+            new Key(PermissionCodes.OFFER_CREATE, "RECRUITER"), true,
+            new Key(PermissionCodes.OFFER_SEND, "RECRUITER"), true
     );
 
     /**
