@@ -180,7 +180,7 @@ public class CloudStorageIntegrationService {
         accessControlService.checkAccess(currentUser, PermissionCodes.INTEGRATION_MANAGE, ResourceContext.none());
 
         IntegrationConnection connection = integrationConnectionRepository
-                .findFirstByPurposeOrderByIdDesc(PURPOSE_CLOUD_STORAGE)
+                .findFirstByPurposeAndStatusOrderByIdDesc(PURPOSE_CLOUD_STORAGE, ConnectionStatus.CONNECTED)
                 .orElseThrow(() -> new BusinessConflictException(ErrorCode.INTEGRATION_NOT_CONNECTED));
 
         connection.setStatus(ConnectionStatus.REVOKED);
