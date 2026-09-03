@@ -7,6 +7,7 @@ import com.hirewise.be.dto.response.OfferResponseDto;
 import com.hirewise.be.dto.response.OfferTemplateResponseDto;
 import com.hirewise.be.security.CurrentUser;
 import com.hirewise.be.security.CurrentUserPrincipal;
+import com.hirewise.be.service.OfferSendService;
 import com.hirewise.be.service.OfferService;
 import jakarta.validation.Valid;
 import lombok.AccessLevel;
@@ -26,7 +27,9 @@ import java.util.UUID;
 
 /**
  * M18 - Offer & e-Signature, Recruiter-facing half: UC-36 (create an Offer
- * Letter from a template).
+ * Letter from a template) and UC-37 (send it for signature). The
+ * candidate-facing half lives on {@code PublicOfferController}, which is
+ * deliberately outside RBAC - see its Javadoc.
  * <p>
  * RBAC:
  * <ul>
@@ -36,6 +39,7 @@ import java.util.UUID;
  *       ownership of the parent Job as its Recruiter (RBAC.md section 4:
  *       {@code application.job.recruiter_id}), both enforced by
  *       {@link RequiresOwnership}/{@code OwnershipAspect}</li>
+ *   <li>{@code POST /api/offers/{offerId}/send} - {@code OFFER_SEND}, same ownership rule</li>
  * </ul>
  */
 @RestController
@@ -45,6 +49,7 @@ import java.util.UUID;
 public class OfferController {
 
     OfferService offerService;
+    OfferSendService offerSendService;
 
     /**
      * UC-36 step 2: templates available in the "Dropdown Offer Template" control.
@@ -113,5 +118,23 @@ public class OfferController {
             @CurrentUserPrincipal CurrentUser currentUser) {
         OfferResponseDto latest = offerService.findLatestForApplication(applicationId);
         return latest == null ? ResponseEntity.noContent().build() : ResponseEntity.ok(latest);
+    }
+
+    /**
+     * UC-37 main flow: issues the candidate's secure link, moves the Offer to
+     * Sent and enqueues EM-11 (BR-OFFER-02/03). Calling it again on a Sent
+     * Offer is the [Gui lai] path of EX-01 and re-issues the link.
+     *
+     * @param offerId     id of the offer to send
+     * @param currentUser authenticated caller - must own the parent Job
+     * @return the offer in its new Sent state
+     */
+    @PostMapping("/offers/{offerId}/send")
+    @RequiresOwnership(resourceType = "OFFER", idParam = "offerId",
+            permission = PermissionCodes.OFFER_SEND)
+    public ResponseEntity<OfferResponseDto> send(
+            @PathVariable UUID offerId,
+            @CurrentUserPrincipal CurrentUser currentUser) {
+        return ResponseEntity.ok(offerSendService.send(offerId, currentUser));
     }
 }

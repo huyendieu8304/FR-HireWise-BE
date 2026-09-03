@@ -95,5 +95,31 @@ public final class OutboxPayloads {
         payload.put("customMessage", customMessage == null ? "" : customMessage);
         return java.util.Collections.unmodifiableMap(payload);
     }
+
+    /**
+     * Payload for {@link OutboxEventType#OFFER_SENT_EMAIL} (EM-11, UC-37 step 4).
+     * Carries the candidate's secure Offer link and its answer deadline.
+     * <p>
+     * The raw link token appears here because the outbox row is the only
+     * place it survives - the DB keeps just its hash - so it is written
+     * once, at send time, and never logged (see {@code OfferSendService}).
+     *
+     * @param email         candidate's email address
+     * @param candidateName candidate's full name (may be null/blank)
+     * @param jobTitle      title of the job being offered
+     * @param offerLink     full URL of the candidate's secure Offer page
+     * @param expiryDate    answer deadline, already formatted for display (BR-OFFER-02)
+     * @param recruiterName full name of the Recruiter sending the offer (may be null/blank)
+     */
+    public static Map<String, Object> offerSentEmail(String email, String candidateName, String jobTitle,
+                                                      String offerLink, String expiryDate, String recruiterName) {
+        return Map.of(
+                "email", email == null ? "" : email,
+                "candidateName", candidateName == null ? "" : candidateName,
+                "jobTitle", jobTitle == null ? "" : jobTitle,
+                "offerLink", offerLink == null ? "" : offerLink,
+                "expiryDate", expiryDate == null ? "" : expiryDate,
+                "recruiterName", recruiterName == null ? "" : recruiterName);
+    }
 }
 

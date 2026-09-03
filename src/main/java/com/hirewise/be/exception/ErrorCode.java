@@ -98,6 +98,11 @@ public enum ErrorCode {
     OFFER_EXPIRY_BEFORE_START_DATE("error.offer_expiry_before_start_date"),
     OFFER_NOT_FOUND("error.offer_not_found"),
 
+    // UC-37 Send the Offer link + e-signature request (BR-OFFER-02/03)
+    OFFER_NOT_SENDABLE("error.offer_not_sendable"),
+    /** ME-32: the answer deadline has passed (BR-OFFER-02). */
+    OFFER_EXPIRED("error.offer_expired"),
+
     ;
 
     private final String key;
