@@ -100,6 +100,17 @@ public enum ErrorCode {
     INTERVIEW_INTERVIEWER_INACTIVE("error.interview_interviewer_inactive"),
     INTERVIEW_TIME_IN_PAST("error.interview_time_in_past"),
 
+    // UC-18 Calendar integration (BR-INTEG-01/BR-INTEG-02)
+    CALENDAR_PROVIDER_UNSUPPORTED("error.calendar_provider_unsupported"),
+    CALENDAR_NOT_CONNECTED("error.calendar_not_connected"),
+    CALENDAR_TEST_CONNECTION_FAILED("error.calendar_test_connection_failed"),
+
+    // UC-24 Interview Scheduling
+    INTERVIEW_STAGE_NOT_INTERVIEW_TYPE("error.interview_stage_not_interview_type"),
+    INTERVIEW_INTERVIEWER_NOT_FOUND("error.interview_interviewer_not_found"),
+    INTERVIEW_INTERVIEWER_INACTIVE("error.interview_interviewer_inactive"),
+    INTERVIEW_TIME_IN_PAST("error.interview_time_in_past"),
+
     // UC-36 Generate an Offer Letter from a template (BR-OFFER-01/02, EX-01)
     OFFER_TEMPLATE_NOT_FOUND("error.offer_template_not_found"),
     OFFER_TEMPLATE_INACTIVE("error.offer_template_inactive"),
