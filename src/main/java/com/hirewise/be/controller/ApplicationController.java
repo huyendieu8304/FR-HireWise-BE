@@ -4,12 +4,14 @@ import com.hirewise.be.authorization.PermissionCodes;
 import com.hirewise.be.authorization.RequiresOwnership;
 import com.hirewise.be.dto.request.MoveApplicationStageRequestDto;
 import com.hirewise.be.dto.request.RejectApplicationRequestDto;
+import com.hirewise.be.dto.response.AiScreeningResultResponseDto;
 import com.hirewise.be.dto.response.ApplicationDetailResponseDto;
 import com.hirewise.be.dto.response.ApplicationRejectionResponseDto;
 import com.hirewise.be.dto.response.FileDownloadResponseDto;
 import com.hirewise.be.dto.response.MoveApplicationStageResponseDto;
 import com.hirewise.be.security.CurrentUser;
 import com.hirewise.be.security.CurrentUserPrincipal;
+import com.hirewise.be.service.AiScreeningService;
 import com.hirewise.be.service.ApplicationRejectionService;
 import com.hirewise.be.service.ApplicationService;
 import com.hirewise.be.service.KanbanService;
@@ -42,6 +44,8 @@ import java.util.UUID;
  *   <li>{@code PATCH /api/applications/{applicationId}/stage} - {@code APPLICATION_MOVE_STAGE} + ownership of the parent Job as its Recruiter
  *       (RBAC.md section 4: {@code application.job.recruiter_id}), both enforced by {@link RequiresOwnership}/{@code OwnershipAspect}</li>
  *   <li>{@code POST /api/applications/{applicationId}/reject}  - {@code APPLICATION_REJECT}, same ownership rule as above</li>
+ *   <li>{@code GET  /api/applications/{applicationId}/ai-screening}     - {@code AI_VIEW}, scoped to the job's department (UC-21)</li>
+ *   <li>{@code POST /api/applications/{applicationId}/ai-screening/run} - {@code AI_VIEW}, scoped to the job's department (UC-21 AF-01)</li>
  * </ul>
  */
 @RestController
@@ -53,7 +57,8 @@ public class ApplicationController {
     ApplicationService applicationService;
     ApplicationRejectionService applicationRejectionService;
     KanbanService kanbanService;
-    com.hirewise.be.service.InterviewService interviewService;
+    AiScreeningService aiScreeningService;
+    InterviewService interviewService;
 
     /**
      * UC-20 main flow: the Applicant Card - full detail of one Candidate's
@@ -190,5 +195,39 @@ public class ApplicationController {
                 .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + result.fileName() + "\"")
                 .contentType(MediaType.parseMediaType(result.mimeType()))
                 .body(result.content());
+    }
+
+    /**
+     * UC-21 main flow: the latest AI Screening Run for the Applicant Card's
+     * [AI Match Analysis] tab. Returns an empty 200 body (never 404) when no
+     * run has been queued yet - "chưa có phân tích AI" is a normal state.
+     *
+     * @param applicationId id of the application
+     * @param currentUser   authenticated caller, used for authorization
+     * @return the latest run's result, or {@code null} if none exists yet
+     */
+    @GetMapping("/{applicationId}/ai-screening")
+    public ResponseEntity<AiScreeningResultResponseDto> getAiScreeningResult(
+            @PathVariable UUID applicationId,
+            @CurrentUserPrincipal CurrentUser currentUser) {
+        return ResponseEntity.ok(aiScreeningService.getLatestResult(applicationId, currentUser));
+    }
+
+    /**
+     * UC-21 AF-01: Recruiter bấm "Phân tích lại" - queues a brand-new AI
+     * Screening Run (picked up asynchronously by
+     * {@code event.AiScreeningDispatcher}), keeping every previous run's
+     * history intact (BR-AI-02).
+     *
+     * @param applicationId id of the application to re-analyze
+     * @param currentUser   authenticated caller, used for authorization
+     * @return 202 Accepted - the run is queued, not completed yet
+     */
+    @PostMapping("/{applicationId}/ai-screening/run")
+    public ResponseEntity<Void> runAiScreening(
+            @PathVariable UUID applicationId,
+            @CurrentUserPrincipal CurrentUser currentUser) {
+        aiScreeningService.runManual(applicationId, currentUser);
+        return ResponseEntity.accepted().build();
     }
 }
