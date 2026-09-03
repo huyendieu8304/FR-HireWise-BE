@@ -13,6 +13,10 @@ public enum OutboxEventType {
     /** EM-02 (UC-13 step 5): notifies a Hiring Manager that a Job Position needs their approval. */
     JOB_SUBMITTED_FOR_APPROVAL_EMAIL,
     /** EM-09 (UC-30, BR-REJ-02): automatic polite rejection email after a Recruiter confirms UC-29. */
-    APPLICATION_REJECTION_EMAIL
+    APPLICATION_REJECTION_EMAIL,
+    /** EM-05 (UC-24): interview invitation email sent to candidate. */
+    INTERVIEW_INVITATION_EMAIL,
+    /** EM-08 (UC-24): interview meeting invite sent to assigned interviewer. */
+    INTERVIEWER_ASSIGNED_EMAIL
 }
 
