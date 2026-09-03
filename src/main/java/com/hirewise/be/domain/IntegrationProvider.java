@@ -4,14 +4,17 @@ import com.hirewise.be.exception.BadRequestException;
 import com.hirewise.be.exception.ErrorCode;
 
 /**
- * 3rd-party provider an {@link IntegrationConnection} talks to. Only the
- * Cloud Storage providers needed through UC-08 are listed here; Calendar/
- * Social providers (UC-18/UC-19) extend this enum when those use cases are
- * implemented.
+ * 3rd-party provider an {@link IntegrationConnection} talks to. Cloud
+ * Storage providers (UC-07/UC-08: Google Drive, Dropbox) and Calendar
+ * providers (UC-18: Google Calendar, Outlook Calendar via Microsoft Graph).
  */
 public enum IntegrationProvider {
     GOOGLE_DRIVE,
-    DROPBOX;
+    DROPBOX,
+    /** UC-18: Google Calendar via the Google Calendar API v3. */
+    GOOGLE_CALENDAR,
+    /** UC-18: Outlook Calendar via the Microsoft Graph API. */
+    OUTLOOK_CALENDAR;
 
     /**
      * Parses the kebab-case path segment used in

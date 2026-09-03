@@ -6,6 +6,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -27,4 +29,18 @@ public interface UserRepository extends JpaRepository<User, Long> {
      */
     @Query("SELECT u.status FROM User u WHERE u.id = :userId")
     Optional<UserStatus> findStatusById(@Param("userId") Long userId);
+
+    /**
+     * Finds active users holding a specific role at the given point in time (e.g. "INTERVIEWER").
+     */
+    @Query("""
+            SELECT DISTINCT u FROM User u
+            JOIN UserRole ur ON ur.user.id = u.id
+            WHERE ur.role.code = :roleCode
+                AND u.status = 'ACTIVE'
+                AND ur.validFrom <= :now
+                AND (ur.validTo IS NULL OR ur.validTo > :now)
+            ORDER BY u.fullName ASC
+            """)
+    List<User> findActiveUsersByRoleCode(@Param("roleCode") String roleCode, @Param("now") Instant now);
 }

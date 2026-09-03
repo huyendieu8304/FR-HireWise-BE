@@ -40,3 +40,6 @@ build/
 .env.prod
 .env.*.local
 !.env.example
+
+# Runtime data / local storage
+data/

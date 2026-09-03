@@ -26,6 +26,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.UUID;
@@ -52,6 +53,7 @@ public class ApplicationController {
     ApplicationService applicationService;
     ApplicationRejectionService applicationRejectionService;
     KanbanService kanbanService;
+    com.hirewise.be.service.InterviewService interviewService;
 
     /**
      * UC-20 main flow: the Applicant Card - full detail of one Candidate's
@@ -107,6 +109,48 @@ public class ApplicationController {
             @CurrentUserPrincipal CurrentUser currentUser) {
         return ResponseEntity.ok(applicationRejectionService.reject(applicationId, request, currentUser));
     }
+
+    /**
+     * UC-24: schedules an interview session, assigns interviewers, transitions
+     * the application to the INTERVIEW stage, and enqueues EM-05 and EM-08 emails.
+     *
+     * @param applicationId id of the application being scheduled
+     * @param request       interview details
+     * @param currentUser   authenticated caller - must own the parent Job (as its Recruiter)
+     * @return the created interview details and stage move outcome
+     */
+    @PostMapping("/{applicationId}/interviews")
+    @RequiresOwnership(resourceType = "APPLICATION", idParam = "applicationId",
+            permission = PermissionCodes.INTERVIEW_SCHEDULE)
+    public ResponseEntity<com.hirewise.be.dto.response.ScheduleInterviewResponseDto> scheduleInterview(
+            @PathVariable UUID applicationId,
+            @Valid @RequestBody com.hirewise.be.dto.request.ScheduleInterviewRequestDto request,
+            @CurrentUserPrincipal CurrentUser currentUser) {
+        return ResponseEntity.status(org.springframework.http.HttpStatus.CREATED)
+                .body(interviewService.scheduleInterview(applicationId, request, currentUser));
+    }
+
+    /**
+     * UC-24: returns active users who can be assigned as interviewers.
+     */
+    @GetMapping("/interviewers")
+    public ResponseEntity<java.util.List<com.hirewise.be.dto.response.InterviewerOptionDto>> getInterviewers(
+            @CurrentUserPrincipal CurrentUser currentUser) {
+        return ResponseEntity.ok(interviewService.getAvailableInterviewers(currentUser));
+    }
+
+    /**
+     * UC-24: returns scheduled interviews within a date range for the visual calendar grid.
+     */
+    @GetMapping("/interviews/calendar")
+    public ResponseEntity<java.util.List<com.hirewise.be.dto.response.InterviewCalendarDto>> getInterviewCalendar(
+            @RequestParam @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate startDate,
+            @RequestParam @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate endDate,
+            @CurrentUserPrincipal CurrentUser currentUser) {
+        return ResponseEntity.ok(interviewService.getScheduleCalendar(startDate, endDate, currentUser));
+    }
+
+
 
     /**
      * UC-20 file view: returns a short-lived URL to view or download one of an
