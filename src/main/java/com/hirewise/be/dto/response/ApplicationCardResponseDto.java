@@ -6,6 +6,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -27,4 +28,6 @@ public class ApplicationCardResponseDto {
     private ApplicationStatus status;
     private Instant appliedAt;
     private Instant lastStageChangedAt;
+    /** UC-21: cache of the latest SUCCEEDED AI Screening Run's Match Score - {@code null} until one succeeds. */
+    private BigDecimal aiMatchScore;
 }

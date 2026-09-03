@@ -24,6 +24,17 @@ public interface ApplicationFileRepository extends JpaRepository<ApplicationFile
     List<ApplicationFile> findByApplication_IdAndFileRole(UUID applicationId, ApplicationFileRole fileRole);
 
     /**
+     * UC-21: the current primary CV of an Application - the exact file
+     * {@code ai.MatchingEngine} analyzes (never a demoted previous version).
+     *
+     * @param applicationId application id
+     * @param fileRole      {@link ApplicationFileRole#CV}
+     * @return the primary CV file, if one has been attached yet
+     */
+    java.util.Optional<ApplicationFile> findByApplication_IdAndFileRoleAndPrimaryTrue(
+            UUID applicationId, ApplicationFileRole fileRole);
+
+    /**
      * UC-20: every file attached to one Application (CV, cover letter,
      * portfolio), for the Applicant Card detail view.
      *
