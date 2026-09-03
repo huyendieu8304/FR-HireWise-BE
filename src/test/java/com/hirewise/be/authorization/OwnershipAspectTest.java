@@ -1,6 +1,7 @@
 package com.hirewise.be.authorization;
 
 import com.hirewise.be.exception.NotResourceOwnerException;
+import com.hirewise.be.repository.UserAccessScopeRepository; // Import thêm
 import com.hirewise.be.security.CurrentUser;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.reflect.MethodSignature;
@@ -11,6 +12,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.lang.reflect.Method;
+import java.time.Clock; // Import thêm
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -37,6 +39,13 @@ class OwnershipAspectTest {
     private RolePermissionCache rolePermissionCache;
     @Mock
     private AccessControlService accessControlService;
+
+    // Thêm 2 Mock mới
+    @Mock
+    private UserAccessScopeRepository userAccessScopeRepository;
+    @Mock
+    private Clock clock;
+
     @Mock
     private OwnershipResolver jobPositionResolver;
     @Mock
@@ -53,7 +62,15 @@ class OwnershipAspectTest {
 
     @BeforeEach
     void setUp() throws NoSuchMethodException {
-        aspect = new OwnershipAspect(resolverRegistry, policyRegistry, rolePermissionCache, accessControlService);
+        // Cập nhật Constructor truyền đủ 6 tham số
+        aspect = new OwnershipAspect(
+                resolverRegistry,
+                policyRegistry,
+                rolePermissionCache,
+                accessControlService,
+                userAccessScopeRepository,
+                clock
+        );
 
         Method method = DummyController.class.getMethod("close", UUID.class, CurrentUser.class);
         when(joinPoint.getSignature()).thenReturn(methodSignature);

@@ -6,6 +6,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
 
@@ -50,6 +51,14 @@ public class Application {
 
     @Column(name = "last_stage_changed_at")
     private Instant lastStageChangedAt;
+
+    /**
+     * UC-21: cache of the latest SUCCEEDED {@link AiScreeningRun#getMatchScore()} -
+     * read by the Kanban card Badge (BR-AI-03) without a join. {@code null}
+     * until the first AI Screening Run succeeds.
+     */
+    @Column(name = "ai_match_score")
+    private BigDecimal aiMatchScore;
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
