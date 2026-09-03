@@ -144,57 +144,6 @@ public class OutboxDispatcher {
                     vars.put("Meeting_Location_Or_Link", meetingLine);
                     emailService.sendTemplateEmail(toEmail, "EM-08", vars);
                 }
-                case INTERVIEW_INVITATION_EMAIL -> {
-                    String toEmail = requireField(payload, "email", event.getEventType());
-                    String link = payload.path("locationOrLink").asText("");
-                    String mode = payload.path("interviewMode").asText("ONLINE");
-                    String meetingLine;
-                    if ("ONLINE".equalsIgnoreCase(mode)) {
-                        String effectiveLink = link.isBlank()
-                                ? com.hirewise.be.service.InterviewService.generateGoogleMeetLink()
-                                : link;
-                        meetingLine = "Link phong hop (Google Meet): " + effectiveLink;
-                    } else {
-                        meetingLine = "Dia diem phong van: " + link;
-                    }
-
-                    java.util.Map<String, String> vars = new java.util.HashMap<>();
-                    vars.put("Candidate_Name", payload.path("candidateName").asText(""));
-                    vars.put("Job_Title", payload.path("jobTitle").asText(""));
-                    vars.put("Interview_Date", payload.path("interviewDate").asText(""));
-                    vars.put("Interview_Time", payload.path("interviewTime").asText(""));
-                    vars.put("Interview_Mode", mode);
-                    vars.put("Meeting_Location_Or_Link", meetingLine);
-                    vars.put("Confirm_Link", link.isBlank() ? "Vui long phan hoi truc tiep qua email nay" : link);
-                    vars.put("Recruiter_Name", payload.path("recruiterName").asText("Recruiter"));
-                    vars.put("Company", "HireWise");
-                    emailService.sendTemplateEmail(toEmail, "EM-05", vars);
-                }
-                case INTERVIEWER_ASSIGNED_EMAIL -> {
-                    String toEmail = requireField(payload, "email", event.getEventType());
-                    String link = payload.path("locationOrLink").asText("");
-                    String mode = payload.path("interviewMode").asText("ONLINE");
-                    String meetingLine;
-                    if ("ONLINE".equalsIgnoreCase(mode)) {
-                        String effectiveLink = link.isBlank()
-                                ? com.hirewise.be.service.InterviewService.generateGoogleMeetLink()
-                                : link;
-                        meetingLine = "Link phong hop (Google Meet): " + effectiveLink;
-                    } else {
-                        meetingLine = "Dia diem phong van: " + link;
-                    }
-
-                    java.util.Map<String, String> vars = new java.util.HashMap<>();
-                    vars.put("Interviewer_Name", payload.path("interviewerName").asText(""));
-                    vars.put("Candidate_Name", payload.path("candidateName").asText(""));
-                    vars.put("Job_Title", payload.path("jobTitle").asText(""));
-                    vars.put("Interview_Date", payload.path("interviewDate").asText(""));
-                    vars.put("Interview_Time", payload.path("interviewTime").asText(""));
-                    vars.put("Candidate_Profile_Link", "Ho so he thong HireWise");
-                    vars.put("Scorecard_Link", "Bang cham diem tren HireWise");
-                    vars.put("Meeting_Location_Or_Link", meetingLine);
-                    emailService.sendTemplateEmail(toEmail, "EM-08", vars);
-                }
                 case OFFER_SENT_EMAIL -> emailService.sendOfferEmail(
                         requireField(payload, "email", event.getEventType()),
                         payload.path("candidateName").asText(null),
