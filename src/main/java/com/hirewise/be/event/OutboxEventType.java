@@ -14,7 +14,13 @@ public enum OutboxEventType {
     JOB_SUBMITTED_FOR_APPROVAL_EMAIL,
     /** EM-09 (UC-30, BR-REJ-02): automatic polite rejection email after a Recruiter confirms UC-29. */
     APPLICATION_REJECTION_EMAIL,
+    /** EM-05 (UC-24): interview invitation email sent to candidate. */
+    INTERVIEW_INVITATION_EMAIL,
+    /** EM-08 (UC-24): interview meeting invite sent to assigned interviewer. */
+    INTERVIEWER_ASSIGNED_EMAIL,
     /** EM-11 (UC-37 step 4): the secure Offer link plus the e-signature request. */
-    OFFER_SENT_EMAIL
+    OFFER_SENT_EMAIL,
+
+    ;
 }
 
