@@ -81,7 +81,7 @@ public class CloudStorageTokenRefreshWorker {
     @Scheduled(fixedDelayString = "${app.integration.token-refresh-poll-interval-ms:300000}")
     public void refreshExpiringConnection() {
         Optional<IntegrationConnection> maybeConnection =
-                integrationConnectionRepository.findFirstByPurposeOrderByIdDesc(PURPOSE_CLOUD_STORAGE);
+                integrationConnectionRepository.findFirstByPurposeAndStatusOrderByIdDesc(PURPOSE_CLOUD_STORAGE, ConnectionStatus.CONNECTED);
         if (maybeConnection.isEmpty()) {
             return; // never connected - nothing to do
         }
