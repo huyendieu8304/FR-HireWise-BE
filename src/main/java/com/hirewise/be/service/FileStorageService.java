@@ -38,8 +38,10 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * UC-17 step 5: stores a candidate's CV onto the Cloud Storage connected via
- * UC-07/UC-08. When that connection is {@code EXPIRED}/{@code REVOKED} (or
+ * Stores files onto the Cloud Storage connected via UC-07/UC-08: a
+ * candidate's CV (UC-17 step 5, {@link #storeCv}) and the signed Offer PDF
+ * (UC-39 step 4, {@link #store}). When that connection is
+ * {@code EXPIRED}/{@code REVOKED} (or
  * an upload attempt fails despite being {@code CONNECTED} - e.g. a
  * revoked-but-not-yet-noticed token), EX-03/BR-STORAGE-02 apply: the file is
  * held in a local pending-upload queue instead, and an internal audit entry
@@ -98,31 +100,55 @@ public class FileStorageService {
      */
     @Transactional
     public StoredFile storeCv(MultipartFile file, String subfolderName, String safeName) {
+        return store(readAllBytes(file), originalFileName(file, safeName), file.getContentType(),
+                subfolderName, safeName);
+    }
+
+    /**
+     * Stores arbitrary bytes on Cloud Storage under the same EX-03 /
+     * BR-STORAGE-02 fallback as {@link #storeCv}.
+     * <p>
+     * Split out of {@code storeCv} for UC-39, whose signed Offer PDF is
+     * generated in memory and so never arrives as a {@link MultipartFile}.
+     * Sharing this path means the signed contract inherits the local
+     * pending-upload queue too: a Cloud Storage outage must not stop a
+     * candidate from accepting a job.
+     *
+     * @param content       the raw bytes to store
+     * @param displayName   name to record in {@code files.file_name}
+     * @param mimeType      content type of {@code content}
+     * @param subfolderName provider-side subfolder to file it under
+     * @param safeName      sanitized storage file name
+     * @return the persisted {@link StoredFile} metadata row
+     */
+    @Transactional
+    public StoredFile store(byte[] content, String displayName, String mimeType,
+                             String subfolderName, String safeName) {
         StorageConnection connection = storageConnectionRepository.findFirstByOrderByIdDesc()
                 .orElseThrow(() -> new IllegalStateException(
                         "No Cloud Storage connection exists - a job cannot be Published (BR-APR-03) without one configured via UC-07"));
 
-        byte[] content = readAllBytes(file);
         String checksum = sha256Hex(content);
         IntegrationConnection integrationConnection = connection.getIntegrationConnection();
 
         if (integrationConnection.getStatus() == ConnectionStatus.CONNECTED) {
             try {
-                return uploadToProvider(connection, file, subfolderName, safeName, content, checksum);
+                return uploadToProvider(connection, displayName, mimeType, subfolderName, safeName, content, checksum);
             } catch (IntegrationConnectException e) {
-                log.warn("CV upload to {} failed even though the connection is CONNECTED - queueing locally "
+                log.warn("Upload to {} failed even though the connection is CONNECTED - queueing locally "
                         + "per BR-STORAGE-02: {}", connection.getProvider(), e.getMessage());
-                return queueLocally(connection, file, subfolderName, safeName, content, checksum);
+                return queueLocally(connection, displayName, mimeType, subfolderName, safeName, content, checksum);
             }
         }
 
         // EX-03: EXPIRED (or REVOKED) - hold the file locally rather than blocking the application.
-        log.warn("Cloud Storage connection is {} - queueing CV locally per BR-STORAGE-02/EX-03",
+        log.warn("Cloud Storage connection is {} - queueing file locally per BR-STORAGE-02/EX-03",
                 integrationConnection.getStatus());
-        return queueLocally(connection, file, subfolderName, safeName, content, checksum);
+        return queueLocally(connection, displayName, mimeType, subfolderName, safeName, content, checksum);
     }
 
-    private StoredFile uploadToProvider(StorageConnection connection, MultipartFile file, String subfolderName, String safeName,
+    private StoredFile uploadToProvider(StorageConnection connection, String displayName, String mimeType,
+                                         String subfolderName, String safeName,
                                          byte[] content, String checksum) {
         OauthToken token = oauthTokenRepository.findByIntegrationConnection_Id(connection.getIntegrationConnection().getId())
                 .orElseThrow(() -> new IntegrationConnectException("No OAuth token stored for the current Cloud Storage connection"));
@@ -133,14 +159,14 @@ public class FileStorageService {
         }
 
         String externalFileId = client.uploadFile(accessToken, connection.getRootFolderId(), subfolderName, safeName,
-                file.getContentType(), content);
+                mimeType, content);
 
         Instant now = Instant.now(clock);
         StoredFile storedFile = StoredFile.builder()
                 .storageConnection(connection)
-                .fileName(originalFileName(file, safeName))
-                .mimeType(file.getContentType())
-                .sizeBytes(file.getSize())
+                .fileName(displayName)
+                .mimeType(mimeType)
+                .sizeBytes(content.length)
                 .externalFileId(externalFileId)
                 .checksumSha256(checksum)
                 .status(FileStatus.ACTIVE)
@@ -150,7 +176,8 @@ public class FileStorageService {
         return storedFileRepository.save(storedFile);
     }
 
-    private StoredFile queueLocally(StorageConnection connection, MultipartFile file, String subfolderName, String safeName,
+    private StoredFile queueLocally(StorageConnection connection, String displayName, String mimeType,
+                                     String subfolderName, String safeName,
                                      byte[] content, String checksum) {
         String prefix = (subfolderName != null && !subfolderName.isBlank()) ? 
                 subfolderName.replaceAll("[^a-zA-Z0-9 -]", "").trim() + "_" : "";
@@ -165,9 +192,9 @@ public class FileStorageService {
         Instant now = Instant.now(clock);
         StoredFile storedFile = StoredFile.builder()
                 .storageConnection(connection)
-                .fileName(originalFileName(file, safeName))
-                .mimeType(file.getContentType())
-                .sizeBytes(file.getSize())
+                .fileName(displayName)
+                .mimeType(mimeType)
+                .sizeBytes(content.length)
                 .externalFileId(PENDING_LOCAL_PREFIX + localFileName)
                 .checksumSha256(checksum)
                 .status(FileStatus.ACTIVE)

@@ -157,6 +157,12 @@ public class SecurityConfig {
                     // an anonymous candidate submits their application - the blanket
                     // GET-only rule above doesn't cover this POST, so it needs its own entry.
                     .requestMatchers(HttpMethod.POST, "/api/public/jobs/*/applications").permitAll()
+                    // UC-38/UC-39: the candidate opens their Offer link, requests and
+                    // verifies an OTP, then signs. Candidates have no account (SRS 3.1),
+                    // so these cannot be authorized by RBAC - the link token plus the
+                    // one-time code ARE the authentication, enforced in OfferAccessService.
+                    // Same GET-only gap as the apply endpoint above: these are POSTs.
+                    .requestMatchers(HttpMethod.POST, "/api/public/offers/**").permitAll()
                     .requestMatchers("/api/auth/**").permitAll()
                     // hit by the Google/Dropbox OAuth redirect itself
                     .requestMatchers(HttpMethod.GET, "/api/integrations/cloud-storage/*/callback").permitAll()

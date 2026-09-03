@@ -20,6 +20,10 @@ public enum OutboxEventType {
     INTERVIEWER_ASSIGNED_EMAIL,
     /** EM-11 (UC-37 step 4): the secure Offer link plus the e-signature request. */
     OFFER_SENT_EMAIL,
+    /** EM-OTP-OFFER (UC-38 step 2, BR-OFFER-03): one-time code guarding the Offer link. */
+    OFFER_OTP_EMAIL,
+    /** EM-12 (UC-39 step 7): confirms the candidate signed, with the signed PDF link. */
+    OFFER_SIGNED_EMAIL
 
     ;
 }

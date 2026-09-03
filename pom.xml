@@ -30,6 +30,7 @@
         <java.version>21</java.version>
         <flyway.version>10.20.0</flyway.version>
         <logstash-logback-encoder.version>9.0</logstash-logback-encoder.version>
+        <openhtmltopdf.version>1.0.10</openhtmltopdf.version>
     </properties>
     <dependencies>
         <dependency>
@@ -107,6 +108,18 @@
         <dependency>
             <groupId>com.github.ben-manes.caffeine</groupId>
             <artifactId>caffeine</artifactId>
+        </dependency>
+        <!--
+            PDF rendering for the signed Offer letter (UC-39 step 4, BR-OFFER-04).
+            Chosen over raw PDFBox because offer_templates.body_template is already
+            HTML, so the signed artifact is produced from the very same markup the
+            candidate read on screen instead of a hand-laid-out second rendering
+            that could drift from it. Apache-2.0.
+        -->
+        <dependency>
+            <groupId>com.openhtmltopdf</groupId>
+            <artifactId>openhtmltopdf-pdfbox</artifactId>
+            <version>${openhtmltopdf.version}</version>
         </dependency>
         <!-- UC-21: AI Match Analysis - calls the Anthropic Claude API (see ai/ package) -->
         <dependency>

@@ -100,17 +100,6 @@ public enum ErrorCode {
     INTERVIEW_INTERVIEWER_INACTIVE("error.interview_interviewer_inactive"),
     INTERVIEW_TIME_IN_PAST("error.interview_time_in_past"),
 
-    // UC-18 Calendar integration (BR-INTEG-01/BR-INTEG-02)
-    CALENDAR_PROVIDER_UNSUPPORTED("error.calendar_provider_unsupported"),
-    CALENDAR_NOT_CONNECTED("error.calendar_not_connected"),
-    CALENDAR_TEST_CONNECTION_FAILED("error.calendar_test_connection_failed"),
-
-    // UC-24 Interview Scheduling
-    INTERVIEW_STAGE_NOT_INTERVIEW_TYPE("error.interview_stage_not_interview_type"),
-    INTERVIEW_INTERVIEWER_NOT_FOUND("error.interview_interviewer_not_found"),
-    INTERVIEW_INTERVIEWER_INACTIVE("error.interview_interviewer_inactive"),
-    INTERVIEW_TIME_IN_PAST("error.interview_time_in_past"),
-
     // UC-36 Generate an Offer Letter from a template (BR-OFFER-01/02, EX-01)
     OFFER_TEMPLATE_NOT_FOUND("error.offer_template_not_found"),
     OFFER_TEMPLATE_INACTIVE("error.offer_template_inactive"),
@@ -124,6 +113,30 @@ public enum ErrorCode {
     OFFER_NOT_SENDABLE("error.offer_not_sendable"),
     /** ME-32: the answer deadline has passed (BR-OFFER-02). */
     OFFER_EXPIRED("error.offer_expired"),
+
+    // UC-38 Open the secure Offer link + OTP (BR-OFFER-03, ME-32/ME-33)
+    /**
+     * The link is unknown, malformed, already used, or its secret does not
+     * match. Deliberately ONE code for every one of those causes so a caller
+     * probing tokens learns nothing about which part was wrong.
+     */
+    OFFER_LINK_INVALID("error.offer_link_invalid"),
+    /** ME-33: wrong or expired one-time code. */
+    OFFER_OTP_INVALID("error.offer_otp_invalid"),
+    /** Too many wrong codes for the current OTP - a fresh one must be requested. */
+    OFFER_OTP_ATTEMPTS_EXCEEDED("error.offer_otp_attempts_exceeded"),
+    OFFER_OTP_RESEND_LIMIT("error.offer_otp_resend_limit"),
+    /** BR-OFFER-03: contract terms requested before any OTP was verified. */
+    OFFER_OTP_REQUIRED("error.offer_otp_required"),
+
+    // UC-39 Electronic signature (BR-OFFER-04, EX-01/ME-34)
+    /** ME-34: [Hoan tat ky] pressed with an empty signature. */
+    OFFER_SIGNATURE_REQUIRED("error.offer_signature_required"),
+    OFFER_SIGNATURE_IMAGE_INVALID("error.offer_signature_image_invalid"),
+    /** BR-OFFER-04: a signed offer is locked - it can never be signed twice. */
+    OFFER_ALREADY_SIGNED("error.offer_already_signed"),
+    OFFER_NOT_SIGNABLE("error.offer_not_signable"),
+    PIPELINE_MISSING_TERMINAL_SUCCESS_STAGE("error.pipeline_missing_terminal_success_stage"),
 
     ;
 

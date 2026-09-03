@@ -136,45 +136,6 @@ public final class OutboxPayloads {
     }
 
     /**
-     * Payload for {@link OutboxEventType#INTERVIEW_INVITATION_EMAIL} (EM-05, UC-24).
-     * Sent to candidate when an interview is scheduled.
-     */
-    public static Map<String, Object> interviewInvitationEmail(
-            String email, String candidateName, String jobTitle,
-            String interviewDate, String interviewTime, String mode,
-            String locationOrLink, String recruiterName) {
-        java.util.HashMap<String, Object> payload = new java.util.HashMap<>();
-        payload.put("email", email == null ? "" : email);
-        payload.put("candidateName", candidateName == null ? "" : candidateName);
-        payload.put("jobTitle", jobTitle == null ? "" : jobTitle);
-        payload.put("interviewDate", interviewDate == null ? "" : interviewDate);
-        payload.put("interviewTime", interviewTime == null ? "" : interviewTime);
-        payload.put("interviewMode", mode == null ? "" : mode);
-        payload.put("locationOrLink", locationOrLink == null ? "" : locationOrLink);
-        payload.put("recruiterName", recruiterName == null ? "" : recruiterName);
-        return java.util.Collections.unmodifiableMap(payload);
-    }
-
-    /**
-     * Payload for {@link OutboxEventType#INTERVIEWER_ASSIGNED_EMAIL} (EM-08, UC-24).
-     * Sent to each assigned interviewer.
-     */
-    public static Map<String, Object> interviewerAssignedEmail(
-            String email, String interviewerName, String candidateName,
-            String jobTitle, String interviewDate, String interviewTime,
-            String locationOrLink) {
-        java.util.HashMap<String, Object> payload = new java.util.HashMap<>();
-        payload.put("email", email == null ? "" : email);
-        payload.put("interviewerName", interviewerName == null ? "" : interviewerName);
-        payload.put("candidateName", candidateName == null ? "" : candidateName);
-        payload.put("jobTitle", jobTitle == null ? "" : jobTitle);
-        payload.put("interviewDate", interviewDate == null ? "" : interviewDate);
-        payload.put("interviewTime", interviewTime == null ? "" : interviewTime);
-        payload.put("locationOrLink", locationOrLink == null ? "" : locationOrLink);
-        return java.util.Collections.unmodifiableMap(payload);
-    }
-
-    /**
      * Payload for {@link OutboxEventType#OFFER_SENT_EMAIL} (EM-11, UC-37 step 4).
      * Carries the candidate's secure Offer link and its answer deadline.
      * <p>
@@ -198,6 +159,52 @@ public final class OutboxPayloads {
                 "offerLink", offerLink == null ? "" : offerLink,
                 "expiryDate", expiryDate == null ? "" : expiryDate,
                 "recruiterName", recruiterName == null ? "" : recruiterName);
+    }
+
+    /**
+     * Payload for {@link OutboxEventType#OFFER_OTP_EMAIL} (UC-38 step 2, BR-OFFER-03).
+     * <p>
+     * The plaintext OTP travels through the outbox row because that is the
+     * only way the dispatcher can render the mail - the DB column holds just
+     * its hash. The row is short-lived and the code expires in minutes; it
+     * is never written to the application log.
+     *
+     * @param email         candidate's email address
+     * @param candidateName candidate's full name (may be null/blank)
+     * @param jobTitle      title of the job being offered
+     * @param otpCode       the 6-digit one-time code
+     * @param ttlMinutes    how long the code stays valid, for the mail body
+     */
+    public static Map<String, Object> offerOtpEmail(String email, String candidateName,
+                                                     String jobTitle, String otpCode, long ttlMinutes) {
+        return Map.of(
+                "email", email == null ? "" : email,
+                "candidateName", candidateName == null ? "" : candidateName,
+                "jobTitle", jobTitle == null ? "" : jobTitle,
+                "otpCode", otpCode == null ? "" : otpCode,
+                "ttlMinutes", ttlMinutes);
+    }
+
+    /**
+     * Payload for {@link OutboxEventType#OFFER_SIGNED_EMAIL} (EM-12, UC-39 step 7).
+     *
+     * @param email          candidate's email address
+     * @param candidateName  candidate's full name (may be null/blank)
+     * @param jobTitle       title of the job just accepted
+     * @param signedAt       signing timestamp, already formatted for display
+     * @param startDate      agreed start date, already formatted for display
+     * @param signedFileLink where the signed PDF can be retrieved; may be blank
+     *                       when the file is still queued locally (BR-STORAGE-02)
+     */
+    public static Map<String, Object> offerSignedEmail(String email, String candidateName, String jobTitle,
+                                                        String signedAt, String startDate, String signedFileLink) {
+        return Map.of(
+                "email", email == null ? "" : email,
+                "candidateName", candidateName == null ? "" : candidateName,
+                "jobTitle", jobTitle == null ? "" : jobTitle,
+                "signedAt", signedAt == null ? "" : signedAt,
+                "startDate", startDate == null ? "" : startDate,
+                "signedFileLink", signedFileLink == null ? "" : signedFileLink);
     }
 }
 

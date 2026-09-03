@@ -6,6 +6,7 @@ import com.hirewise.be.dto.request.RefreshTokenRequestDto;
 import com.hirewise.be.dto.response.AccessTokenResponseDto;
 import com.hirewise.be.dto.response.LoginResponseDto;
 import com.hirewise.be.exception.TooManyRequestsException;
+import com.hirewise.be.security.ClientIpResolver;
 import com.hirewise.be.security.LoginRateLimiter;
 import com.hirewise.be.service.AuthService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -40,7 +41,7 @@ public class AuthController {
     /** Email/Password login. */
     @PostMapping("/login")
     public ResponseEntity<LoginResponseDto> login(@Valid @RequestBody LoginRequestDto request, HttpServletRequest httpRequest) {
-        String ip = clientIp(httpRequest);
+        String ip = ClientIpResolver.resolve(httpRequest);
         if (!loginRateLimiter.tryAcquire(ip)) {
             throw new TooManyRequestsException();
         }
@@ -52,7 +53,7 @@ public class AuthController {
     @PostMapping("/google")
     //todo chua hieu sao body lai map sang
     public ResponseEntity<LoginResponseDto> loginWithGoogle(@RequestBody Map<String, String> body, HttpServletRequest httpRequest) {
-        String ip = clientIp(httpRequest);
+        String ip = ClientIpResolver.resolve(httpRequest);
         if (!loginRateLimiter.tryAcquire(ip)) {
             throw new TooManyRequestsException();
         }
@@ -83,11 +84,4 @@ public class AuthController {
         return ResponseEntity.noContent().build();
     }
 
-    private String clientIp(HttpServletRequest request) {
-        String forwardedFor = request.getHeader("X-Forwarded-For");
-        if (forwardedFor != null && !forwardedFor.isBlank()) {
-            return forwardedFor.split(",")[0].trim();
-        }
-        return request.getRemoteAddr();
-    }
 }
