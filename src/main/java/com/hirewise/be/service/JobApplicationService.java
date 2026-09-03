@@ -77,6 +77,7 @@ public class JobApplicationService {
     FileStorageService fileStorageService;
     OutboxEventPublisher outboxEventPublisher;
     AuditLogService auditLogService;
+    AiScreeningService aiScreeningService;
     Clock clock;
 
     /**
@@ -117,6 +118,11 @@ public class JobApplicationService {
         StoredFile storedFile = fileStorageService.storeCv(cvFile, subfolderName, safeFileName);
 
         attachCvFile(application, storedFile, duplicate, now);
+
+        // UC-21 precondition: queue an AI Screening Run now that the CV is attached -
+        // only ever inserts a row (PENDING or an immediate FAILED for an unsupported
+        // format), never calls the AI Engine itself on this request thread.
+        aiScreeningService.enqueueRun(application);
 
         outboxEventPublisher.publish(OutboxEventType.APPLICATION_CONFIRMATION_EMAIL,
                 OutboxPayloads.applicationConfirmationEmail(candidate.getPrimaryEmail(), candidate.getFullName(), job.getTitle()));
