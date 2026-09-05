@@ -6,9 +6,12 @@ import com.hirewise.be.authorization.ResourceContext;
 import com.hirewise.be.domain.Application;
 import com.hirewise.be.domain.ApplicationStageHistory;
 import com.hirewise.be.domain.ApplicationStatus;
+import com.hirewise.be.domain.Interview;
+import com.hirewise.be.domain.InterviewStatus;
 import com.hirewise.be.domain.JobPosition;
 import com.hirewise.be.domain.PipelineStage;
 import com.hirewise.be.domain.StageTransitionType;
+import com.hirewise.be.domain.StageType;
 import com.hirewise.be.dto.request.MoveApplicationStageRequestDto;
 import com.hirewise.be.dto.response.KanbanBoardResponseDto;
 import com.hirewise.be.dto.response.KanbanStageColumnResponseDto;
@@ -20,6 +23,7 @@ import com.hirewise.be.exception.ResourceNotFoundException;
 import com.hirewise.be.mapper.KanbanMapper;
 import com.hirewise.be.repository.ApplicationRepository;
 import com.hirewise.be.repository.ApplicationStageHistoryRepository;
+import com.hirewise.be.repository.InterviewRepository;
 import com.hirewise.be.repository.JobPositionRepository;
 import com.hirewise.be.repository.PipelineStageRepository;
 import com.hirewise.be.repository.UserRepository;
@@ -56,6 +60,7 @@ public class KanbanService {
     PipelineStageRepository pipelineStageRepository;
     ApplicationRepository applicationRepository;
     ApplicationStageHistoryRepository applicationStageHistoryRepository;
+    InterviewRepository interviewRepository;
     UserRepository userRepository;
     AccessControlService accessControlService;
     Clock clock;
@@ -169,6 +174,21 @@ public class KanbanService {
                 .changedAt(now)
                 .build();
         applicationStageHistoryRepository.save(history);
+
+        // Auto-cancel scheduled interviews if moving away from INTERVIEW stage
+        if (fromStage.getStageType() == StageType.INTERVIEW && toStage.getStageType() != StageType.INTERVIEW) {
+            List<Interview> scheduledInterviews = interviewRepository.findAllByApplication_IdAndStatus(
+                    applicationId, InterviewStatus.SCHEDULED);
+            for (Interview scheduledInterview : scheduledInterviews) {
+                scheduledInterview.setStatus(InterviewStatus.CANCELLED);
+                scheduledInterview.setUpdatedAt(now);
+                interviewRepository.save(scheduledInterview);
+            }
+            if (!scheduledInterviews.isEmpty()) {
+                log.info("Cancelled {} scheduled interview(s) for application {} moved from INTERVIEW to {}",
+                        scheduledInterviews.size(), applicationId, toStage.getStageType());
+            }
+        }
 
         log.info("Application {} moved stage {} -> {} by user {}",
                 applicationId, fromStage.getId(), toStage.getId(), currentUser.userId());
