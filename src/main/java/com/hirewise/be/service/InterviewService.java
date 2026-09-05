@@ -119,7 +119,23 @@ public class InterviewService {
             throw new BadRequestException(ErrorCode.INTERVIEW_TIME_IN_PAST);
         }
 
-        // Validate and fetch interviewers
+        Instant now = Instant.now(clock);
+
+        // Auto-cancel previous SCHEDULED interview(s) for this application before scheduling a new one
+        List<Interview> existingScheduledInterviews = interviewRepository.findAllByApplication_IdAndStatus(
+                applicationId, InterviewStatus.SCHEDULED);
+        for (Interview oldInterview : existingScheduledInterviews) {
+            oldInterview.setStatus(InterviewStatus.CANCELLED);
+            oldInterview.setUpdatedAt(now);
+            interviewRepository.save(oldInterview);
+        }
+        if (!existingScheduledInterviews.isEmpty()) {
+            interviewRepository.flush();
+            log.info("Cancelled {} previous scheduled interview(s) for application {}",
+                    existingScheduledInterviews.size(), applicationId);
+        }
+
+        // Validate and fetch interviewers, checking for schedule conflict
         List<User> interviewers = new ArrayList<>();
         for (Long interviewerId : request.getInterviewerIds()) {
             User interviewer = userRepository.findById(interviewerId)
@@ -127,10 +143,14 @@ public class InterviewService {
             if (interviewer.getStatus() != UserStatus.ACTIVE) {
                 throw new BusinessConflictException(ErrorCode.INTERVIEW_INTERVIEWER_INACTIVE, interviewer.getFullName());
             }
+            boolean hasConflict = interviewParticipantRepository
+                    .existsByInterviewer_IdAndInterview_InterviewDateAndInterview_InterviewTimeAndInterview_StatusNot(
+                            interviewerId, request.getInterviewDate(), request.getInterviewTime(), InterviewStatus.CANCELLED);
+            if (hasConflict) {
+                throw new BusinessConflictException(ErrorCode.INTERVIEWER_TIME_CONFLICT, interviewer.getFullName());
+            }
             interviewers.add(interviewer);
         }
-
-        Instant now = Instant.now(clock);
 
         // 1. Move stage (audit trail)
         application.setCurrentStage(toStage);
@@ -161,7 +181,19 @@ public class InterviewService {
                         application.getCandidate().getFullName());
                 LocalDateTime start = LocalDateTime.of(request.getInterviewDate(), request.getInterviewTime());
                 LocalDateTime end = start.plusMinutes(45);
-                effectiveLocationOrLink = calendarIntegrationService.createGoogleMeetMeeting(summary, description, start, end)
+
+                List<String> attendeeEmails = new ArrayList<>();
+                for (User interviewer : interviewers) {
+                    if (interviewer.getEmail() != null && !interviewer.getEmail().isBlank()) {
+                        attendeeEmails.add(interviewer.getEmail());
+                    }
+                }
+                if (application.getCandidate().getPrimaryEmail() != null && !application.getCandidate().getPrimaryEmail().isBlank()) {
+                    attendeeEmails.add(application.getCandidate().getPrimaryEmail());
+                }
+
+                effectiveLocationOrLink = calendarIntegrationService.createGoogleMeetMeeting(
+                                summary, description, start, end, attendeeEmails)
                         .orElseGet(InterviewService::generateGoogleMeetLink);
             }
         }
@@ -260,6 +292,30 @@ public class InterviewService {
             LocalDate startDate, LocalDate endDate, CurrentUser currentUser) {
         accessControlService.checkAccess(currentUser, PermissionCodes.APPLICATION_VIEW, ResourceContext.none());
         List<Interview> interviews = interviewRepository.findBetweenDates(startDate, endDate);
+
+        // Filter: only related recruiters, interviewers, and hiring managers can see the interview (HR_ADMIN sees all)
+        if (!currentUser.hasRole("HR_ADMIN")) {
+            Long currentUserId = currentUser.userId();
+            interviews = interviews.stream().filter(i -> {
+                boolean isParticipant = i.getParticipants() != null && i.getParticipants().stream()
+                        .anyMatch(p -> p.getInterviewer() != null && currentUserId.equals(p.getInterviewer().getId()));
+                boolean isScheduledBy = i.getScheduledBy() != null && currentUserId.equals(i.getScheduledBy().getId());
+                boolean isJobRecruiter = i.getApplication() != null
+                        && i.getApplication().getJobPosition() != null
+                        && i.getApplication().getJobPosition().getRecruiter() != null
+                        && currentUserId.equals(i.getApplication().getJobPosition().getRecruiter().getId());
+                boolean isJobCreator = i.getApplication() != null
+                        && i.getApplication().getJobPosition() != null
+                        && currentUserId.equals(i.getApplication().getJobPosition().getCreatedByUserId());
+                boolean isHiringManager = i.getApplication() != null
+                        && i.getApplication().getJobPosition() != null
+                        && i.getApplication().getJobPosition().getHiringManager() != null
+                        && currentUserId.equals(i.getApplication().getJobPosition().getHiringManager().getId());
+
+                return isParticipant || isScheduledBy || isJobRecruiter || isJobCreator || isHiringManager;
+            }).toList();
+        }
+
         return interviews.stream().map(i -> {
             List<String> participantNames = i.getParticipants() != null
                     ? i.getParticipants().stream()
@@ -278,22 +334,28 @@ public class InterviewService {
                     .locationOrLink(i.getLocationOrLink())
                     .status(i.getStatus())
                     .interviewerNames(participantNames)
+                    .notes(i.getNotes())
                     .build();
         }).toList();
     }
 
     /**
-     * Generates a Jitsi Meet room URL as fallback when Google Calendar is not connected.
-     * Jitsi Meet rooms are publicly accessible and require no prior API creation.
-     * Format: https://meet.jit.si/HireWise-{random-adjective}-{random-noun}-{random-number}
+     * Generates a Google Meet-style URL as fallback when Google Calendar is not connected.
+     * Mimics the standard Google Meet room code format: xxx-yyyy-zzz (3-4-3 lowercase letters).
+     * Format: https://meet.google.com/xxx-yyyy-zzz
      */
     public static String generateGoogleMeetLink() {
-        String[] adjectives = {"Swift", "Bright", "Clear", "Smart", "Prime", "Sharp", "Bold", "Fast"};
-        String[] nouns = {"Interview", "Meeting", "Session", "Review", "Panel", "Talk", "Chat", "Call"};
-        java.util.Random rnd = new java.security.SecureRandom();
-        String adj = adjectives[rnd.nextInt(adjectives.length)];
-        String noun = nouns[rnd.nextInt(nouns.length)];
-        int num = 1000 + rnd.nextInt(9000);
-        return "https://meet.jit.si/HireWise-" + adj + "-" + noun + "-" + num;
+        java.security.SecureRandom rnd = new java.security.SecureRandom();
+        String chars = "abcdefghijklmnopqrstuvwxyz";
+        StringBuilder sb = new StringBuilder("https://meet.google.com/");
+        // First segment: 3 characters
+        for (int i = 0; i < 3; i++) sb.append(chars.charAt(rnd.nextInt(chars.length())));
+        sb.append('-');
+        // Second segment: 4 characters
+        for (int i = 0; i < 4; i++) sb.append(chars.charAt(rnd.nextInt(chars.length())));
+        sb.append('-');
+        // Third segment: 3 characters
+        for (int i = 0; i < 3; i++) sb.append(chars.charAt(rnd.nextInt(chars.length())));
+        return sb.toString();
     }
 }
