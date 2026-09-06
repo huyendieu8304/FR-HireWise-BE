@@ -306,4 +306,152 @@ class InterviewServiceTest {
         assertThat(options).hasSize(1);
         assertThat(options.get(0).getFullName()).isEqualTo("Interviewer A");
     }
+
+    @Test
+    @DisplayName("Throws BusinessConflictException when interviewer already has conflicting schedule")
+    void scheduleInterview_interviewerConflict_throwsBusinessConflict() {
+        UUID appId = UUID.randomUUID();
+        PipelineTemplate template = PipelineTemplate.builder().id(1L).build();
+        PipelineStage stage = PipelineStage.builder().id(10L).pipelineTemplate(template).terminal(false).active(true).build();
+        PipelineStage interviewStage = PipelineStage.builder().id(20L).stageType(StageType.INTERVIEW).pipelineTemplate(template).terminal(false).active(true).build();
+        JobPosition job = JobPosition.builder().id(UUID.randomUUID()).pipelineTemplate(template).build();
+        Application application = Application.builder().id(appId).jobPosition(job).currentStage(stage).build();
+
+        User interviewer1 = User.builder().id(1L).fullName("Interviewer Conflict").status(UserStatus.ACTIVE).build();
+
+        when(applicationRepository.findById(appId)).thenReturn(Optional.of(application));
+        when(pipelineStageRepository.findById(20L)).thenReturn(Optional.of(interviewStage));
+        when(userRepository.findById(1L)).thenReturn(Optional.of(interviewer1));
+        when(interviewParticipantRepository.existsByInterviewer_IdAndInterview_InterviewDateAndInterview_InterviewTimeAndInterview_StatusNot(
+                eq(1L), eq(LocalDate.of(2026, 9, 10)), eq(LocalTime.of(10, 0)), eq(InterviewStatus.CANCELLED)
+        )).thenReturn(true);
+
+        ScheduleInterviewRequestDto request = ScheduleInterviewRequestDto.builder()
+                .targetStageId(20L)
+                .interviewerIds(List.of(1L))
+                .interviewDate(LocalDate.of(2026, 9, 10))
+                .interviewTime(LocalTime.of(10, 0))
+                .mode(InterviewMode.ONLINE)
+                .build();
+
+        assertThatThrownBy(() -> interviewService.scheduleInterview(appId, request, recruiterUser))
+                .isInstanceOf(BusinessConflictException.class);
+    }
+
+    @Test
+    @DisplayName("Automatically cancels existing scheduled interviews of the application before scheduling new one")
+    void scheduleInterview_cancelsExistingScheduledInterviews() {
+        UUID appId = UUID.randomUUID();
+        PipelineTemplate template = PipelineTemplate.builder().id(1L).build();
+        PipelineStage stage = PipelineStage.builder().id(10L).pipelineTemplate(template).terminal(false).active(true).build();
+        PipelineStage interviewStage = PipelineStage.builder().id(20L).stageType(StageType.INTERVIEW).pipelineTemplate(template).terminal(false).active(true).build();
+        JobPosition job = JobPosition.builder().id(UUID.randomUUID()).title("Dev").pipelineTemplate(template).build();
+        Candidate candidate = Candidate.builder().id(UUID.randomUUID()).fullName("Tran Van B").primaryEmail("tranvanb@gmail.com").build();
+        Application application = Application.builder().id(appId).candidate(candidate).jobPosition(job).currentStage(stage).build();
+
+        Interview oldInterview = Interview.builder()
+                .id(UUID.randomUUID())
+                .status(InterviewStatus.SCHEDULED)
+                .build();
+
+        User interviewer1 = User.builder().id(1L).fullName("Interviewer One").status(UserStatus.ACTIVE).build();
+
+        when(applicationRepository.findById(appId)).thenReturn(Optional.of(application));
+        when(pipelineStageRepository.findById(20L)).thenReturn(Optional.of(interviewStage));
+        when(userRepository.findById(1L)).thenReturn(Optional.of(interviewer1));
+        when(userRepository.getReferenceById(100L)).thenReturn(interviewer1);
+        when(interviewRepository.findAllByApplication_IdAndStatus(appId, InterviewStatus.SCHEDULED))
+                .thenReturn(List.of(oldInterview));
+
+        Interview savedInterview = Interview.builder()
+                .id(UUID.randomUUID())
+                .application(application)
+                .scheduledBy(interviewer1)
+                .interviewDate(LocalDate.of(2026, 9, 10))
+                .interviewTime(LocalTime.of(10, 0))
+                .mode(InterviewMode.ONLINE)
+                .status(InterviewStatus.SCHEDULED)
+                .build();
+        when(interviewRepository.save(any(Interview.class))).thenReturn(savedInterview);
+        when(interviewParticipantRepository.save(any(InterviewParticipant.class))).thenAnswer(i -> i.getArgument(0));
+
+        ScheduleInterviewRequestDto request = ScheduleInterviewRequestDto.builder()
+                .targetStageId(20L)
+                .interviewerIds(List.of(1L))
+                .interviewDate(LocalDate.of(2026, 9, 10))
+                .interviewTime(LocalTime.of(10, 0))
+                .mode(InterviewMode.ONLINE)
+                .build();
+
+        interviewService.scheduleInterview(appId, request, recruiterUser);
+
+        assertThat(oldInterview.getStatus()).isEqualTo(InterviewStatus.CANCELLED);
+    }
+
+    @Test
+    @DisplayName("Interviewer only sees interviews where they are assigned as participant")
+    void getScheduleCalendar_interviewerOnlySeesAssignedInterviews() {
+        CurrentUser interviewerUser = new CurrentUser(50L, "interviewer@hirewise.vn", "Interviewer User", Set.of("INTERVIEWER"));
+        LocalDate start = LocalDate.of(2026, 9, 1);
+        LocalDate end = LocalDate.of(2026, 9, 30);
+
+        User interviewer50 = User.builder().id(50L).fullName("Interviewer 50").build();
+        User interviewer99 = User.builder().id(99L).fullName("Interviewer 99").build();
+
+        JobPosition job = JobPosition.builder().title("Dev").build();
+        Candidate candidate = Candidate.builder().fullName("Candidate A").primaryEmail("a@gmail.com").build();
+        Application app = Application.builder().id(UUID.randomUUID()).candidate(candidate).jobPosition(job).build();
+
+        Interview myInterview = Interview.builder()
+                .id(UUID.randomUUID())
+                .application(app)
+                .interviewDate(LocalDate.of(2026, 9, 10))
+                .interviewTime(LocalTime.of(10, 0))
+                .mode(InterviewMode.ONLINE)
+                .status(InterviewStatus.SCHEDULED)
+                .build();
+        InterviewParticipant myPart = InterviewParticipant.builder().interview(myInterview).interviewer(interviewer50).build();
+        myInterview.setParticipants(List.of(myPart));
+
+        Interview otherInterview = Interview.builder()
+                .id(UUID.randomUUID())
+                .application(app)
+                .interviewDate(LocalDate.of(2026, 9, 11))
+                .interviewTime(LocalTime.of(14, 0))
+                .mode(InterviewMode.ONLINE)
+                .status(InterviewStatus.SCHEDULED)
+                .build();
+        InterviewParticipant otherPart = InterviewParticipant.builder().interview(otherInterview).interviewer(interviewer99).build();
+        otherInterview.setParticipants(List.of(otherPart));
+
+        when(interviewRepository.findBetweenDates(start, end)).thenReturn(List.of(myInterview, otherInterview));
+
+        List<com.hirewise.be.dto.response.InterviewCalendarDto> result =
+                interviewService.getScheduleCalendar(start, end, interviewerUser);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getInterviewId()).isEqualTo(myInterview.getId());
+    }
+
+    @Test
+    @DisplayName("HR Admin sees all scheduled interviews across the company")
+    void getScheduleCalendar_hrAdminSeesAll() {
+        CurrentUser adminUser = new CurrentUser(1L, "admin@hirewise.vn", "Admin", Set.of("HR_ADMIN"));
+        LocalDate start = LocalDate.of(2026, 9, 1);
+        LocalDate end = LocalDate.of(2026, 9, 30);
+
+        JobPosition job = JobPosition.builder().title("Dev").build();
+        Candidate candidate = Candidate.builder().fullName("Candidate A").primaryEmail("a@gmail.com").build();
+        Application app = Application.builder().id(UUID.randomUUID()).candidate(candidate).jobPosition(job).build();
+
+        Interview int1 = Interview.builder().id(UUID.randomUUID()).application(app).interviewDate(LocalDate.of(2026, 9, 10)).interviewTime(LocalTime.of(10, 0)).mode(InterviewMode.ONLINE).status(InterviewStatus.SCHEDULED).build();
+        Interview int2 = Interview.builder().id(UUID.randomUUID()).application(app).interviewDate(LocalDate.of(2026, 9, 11)).interviewTime(LocalTime.of(14, 0)).mode(InterviewMode.ONLINE).status(InterviewStatus.SCHEDULED).build();
+
+        when(interviewRepository.findBetweenDates(start, end)).thenReturn(List.of(int1, int2));
+
+        List<com.hirewise.be.dto.response.InterviewCalendarDto> result =
+                interviewService.getScheduleCalendar(start, end, adminUser);
+
+        assertThat(result).hasSize(2);
+    }
 }

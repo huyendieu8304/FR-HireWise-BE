@@ -114,6 +114,15 @@ public class CalendarIntegrationService {
             String description,
             java.time.LocalDateTime startDateTime,
             java.time.LocalDateTime endDateTime) {
+        return createGoogleMeetMeeting(summary, description, startDateTime, endDateTime, java.util.List.of());
+    }
+
+    public java.util.Optional<String> createGoogleMeetMeeting(
+            String summary,
+            String description,
+            java.time.LocalDateTime startDateTime,
+            java.time.LocalDateTime endDateTime,
+            java.util.List<String> attendeeEmails) {
 
         // 1. Find the active GOOGLE_CALENDAR connection
         IntegrationConnection conn = integrationConnectionRepository
@@ -170,7 +179,7 @@ public class CalendarIntegrationService {
             CalendarProviderClient client = clientFor(IntegrationProvider.GOOGLE_CALENDAR);
             if (client instanceof GoogleCalendarProviderClient googleClient) {
                 String meetLink = googleClient.createMeetingEvent(
-                        accessToken, summary, description, startDateTime, endDateTime);
+                        accessToken, summary, description, startDateTime, endDateTime, attendeeEmails);
                 if (meetLink != null && !meetLink.isBlank()) {
                     log.info("createGoogleMeetMeeting: Created Meet link: {}", meetLink);
                     return java.util.Optional.of(meetLink);

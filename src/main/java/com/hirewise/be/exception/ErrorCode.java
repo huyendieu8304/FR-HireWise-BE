@@ -99,6 +99,7 @@ public enum ErrorCode {
     INTERVIEW_INTERVIEWER_NOT_FOUND("error.interview_interviewer_not_found"),
     INTERVIEW_INTERVIEWER_INACTIVE("error.interview_interviewer_inactive"),
     INTERVIEW_TIME_IN_PAST("error.interview_time_in_past"),
+    INTERVIEWER_TIME_CONFLICT("error.interviewer_time_conflict"),
 
     // UC-36 Generate an Offer Letter from a template (BR-OFFER-01/02, EX-01)
     OFFER_TEMPLATE_NOT_FOUND("error.offer_template_not_found"),
