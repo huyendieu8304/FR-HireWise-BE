@@ -244,10 +244,26 @@ public class CloudStorageIntegrationService {
                         .provider(provider)
                         .createdAt(now)
                         .build());
-        if (storageConnection.getRootFolderId() == null) {
-            // Best-effort (see CloudStorageProviderClient#createRootFolder) - a failure here
-            // does not fail the connection itself, only leaves rootFolderId null for now.
-            storageConnection.setRootFolderId(clientFor(provider).createRootFolder(tokenResponse.accessToken()));
+        // Luôn xác thực/tạo lại root folder ở MỌI lần Connect/Reconnect - không chỉ khi
+        // rootFolderId đang null như trước. Một Reconnect (UC-08 AF-01) là 1 OAuth grant
+        // HOÀN TOÀN MỚI, và scope drive.file (BR-STORAGE-01) chỉ cấp quyền cho đúng những
+        // file/folder mà access token ĐANG HIỆU LỰC đã tạo ra - access token cũ (trước lúc
+        // Disconnect) có thể đã tạo rootFolderId này, nhưng access token MỚI hoàn toàn có
+        // thể không còn quyền ghi vào đó nữa. Nếu cứ tái dùng rootFolderId cũ, mọi lần
+        // upload sau sẽ âm thầm bị Google/Dropbox từ chối (403) và rơi vào nhánh
+        // queueLocally() dù trạng thái kết nối vẫn hiện CONNECTED bình thường - đúng bug
+        // thực tế đã gặp khi debug UC-21 (AI Screening báo FILE_NOT_YET_AVAILABLE ngay cả
+        // với CV vừa nộp sau khi Reconnect). createRootFolder() của mỗi provider đã tự
+        // idempotent (tìm theo tên/path trước, có thì dùng lại, không thì mới tạo) nên gọi
+        // lại không tạo trùng folder - chỉ tốn thêm 1-2 lời gọi API tại thời điểm Connect/
+        // Reconnect do HR Admin chủ động bấm, KHÔNG chạy trên mỗi lần làm mới token nền
+        // (xem CloudStorageTokenRefreshWorker, không gọi persistConnection này).
+        String rootFolderId = clientFor(provider).createRootFolder(tokenResponse.accessToken());
+        if (rootFolderId != null) {
+            // Best-effort (xem CloudStorageProviderClient#createRootFolder) - nếu lần gọi
+            // này thất bại, giữ nguyên giá trị cũ thay vì xoá về null, để không làm hỏng
+            // 1 cấu hình đang hoạt động chỉ vì 1 lỗi tạm thời của riêng lần gọi này.
+            storageConnection.setRootFolderId(rootFolderId);
         }
         storageConnection.setUpdatedAt(now);
         storageConnection = storageConnectionRepository.save(storageConnection);

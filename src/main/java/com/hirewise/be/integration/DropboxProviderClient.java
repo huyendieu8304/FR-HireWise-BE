@@ -4,13 +4,17 @@ import com.hirewise.be.domain.IntegrationProvider;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.ClientHttpRequestFactory;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
+import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.util.UriComponentsBuilder;
 
+import java.time.Duration;
 import java.util.Map;
 
 /**
@@ -32,9 +36,31 @@ public class DropboxProviderClient implements CloudStorageProviderClient {
     private final String clientId;
     private final String clientSecret;
     private final String redirectUri;
-    private final RestClient tokenClient = RestClient.create();
-    private final RestClient apiClient = RestClient.builder().baseUrl(API_BASE_URL).build();
-    private final RestClient contentClient = RestClient.builder().baseUrl(CONTENT_BASE_URL).build();
+    // Không đặt timeout thì gọi Dropbox treo vô thời hạn khi mạng chập chờn -
+    // downloadFile() nằm ngay trong luồng "phân tích AI" (event.AiScreeningDispatcher
+    // chạy 1 luồng duy nhất, tuần tự từng run) nên 1 request Dropbox bị treo chặn đứng
+    // TOÀN BỘ hàng đợi AI Screening, không chỉ request đang gọi.
+    private final ClientHttpRequestFactory requestFactory = defaultRequestFactory();
+    private final RestClient tokenClient = RestClient.builder().requestFactory(requestFactory).build();
+    private final RestClient apiClient = RestClient.builder().baseUrl(API_BASE_URL).requestFactory(requestFactory).build();
+    private final RestClient contentClient = RestClient.builder().baseUrl(CONTENT_BASE_URL).requestFactory(requestFactory).build();
+
+    private static ClientHttpRequestFactory defaultRequestFactory() {
+        // Dùng JdkClientHttpRequestFactory (java.net.http.HttpClient), KHÔNG dùng
+        // SimpleClientHttpRequestFactory (java.net.HttpURLConnection đời cũ) - xem giải
+        // thích đầy đủ ở GoogleDriveProviderClient#defaultRequestFactory. Dropbox API tuy
+        // chỉ dùng POST (không có method nào gây lỗi tương tự PATCH ở Drive) nhưng dùng
+        // chung 1 loại request factory đúng cho cả 2 provider để tránh lặp lại đúng bug đó
+        // nếu sau này có provider/endpoint khác cần PUT/PATCH/DELETE.
+        java.net.http.HttpClient httpClient = java.net.http.HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(10))
+                .build();
+        JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(httpClient);
+        // 60s: đủ rộng rãi cho việc tải 1 file CV (giới hạn 10MB, BR-APPLY-01) qua mạng
+        // chậm, nhưng vẫn có trần - không để treo vô hạn.
+        factory.setReadTimeout(Duration.ofSeconds(60));
+        return factory;
+    }
 
     public DropboxProviderClient(
             @Value("${app.integration.dropbox.client-id:}") String clientId,
@@ -83,7 +109,7 @@ public class DropboxProviderClient implements CloudStorageProviderClient {
                     .retrieve()
                     .body(OAuthTokenResponse.class);
         } catch (RestClientException e) {
-            throw new IntegrationConnectException("Dropbox token exchange failed", e);
+            throw new IntegrationConnectException("Dropbox token exchange failed: " + describe(e), e);
         }
     }
 
@@ -112,7 +138,7 @@ public class DropboxProviderClient implements CloudStorageProviderClient {
             // HireWise's access from their Dropbox account settings) - the caller
             // (CloudStorageTokenRefreshWorker) falls back to marking the connection
             // EXPIRED so UC-08's normal Reconnect flow can recover it.
-            throw new IntegrationConnectException("Dropbox token refresh failed", e);
+            throw new IntegrationConnectException("Dropbox token refresh failed: " + describe(e), e);
         }
     }
 
@@ -167,8 +193,16 @@ public class DropboxProviderClient implements CloudStorageProviderClient {
                     .body(Map.class);
             return response == null ? null : (String) response.get("id");
         } catch (RestClientException e) {
-            throw new IntegrationConnectException("Dropbox file upload failed", e);
+            throw new IntegrationConnectException("Dropbox file upload failed: " + describe(e), e);
         }
+    }
+
+    /** Xem giải thích ở {@code GoogleDriveProviderClient#describe} - cùng lý do, cùng cách sửa. */
+    private static String describe(RestClientException e) {
+        if (e instanceof HttpStatusCodeException hsce) {
+            return hsce.getStatusCode() + " " + hsce.getResponseBodyAsString();
+        }
+        return e.getMessage();
     }
 
     private static String sanitizeForPath(String fileName) {
@@ -200,7 +234,8 @@ public class DropboxProviderClient implements CloudStorageProviderClient {
             }
             return (String) response.get("link");
         } catch (RestClientException e) {
-            throw new IntegrationConnectException("Failed to get Dropbox temporary link for file " + externalFileId, e);
+            throw new IntegrationConnectException(
+                    "Failed to get Dropbox temporary link for file " + externalFileId + " - " + describe(e), e);
         }
     }
 
@@ -217,7 +252,8 @@ public class DropboxProviderClient implements CloudStorageProviderClient {
                     .retrieve()
                     .body(byte[].class);
         } catch (RestClientException e) {
-            throw new IntegrationConnectException("Failed to download file from Dropbox: " + externalFileId, e);
+            throw new IntegrationConnectException(
+                    "Failed to download file from Dropbox: " + externalFileId + " - " + describe(e), e);
         }
     }
 

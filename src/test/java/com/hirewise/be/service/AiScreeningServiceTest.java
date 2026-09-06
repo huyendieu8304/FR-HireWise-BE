@@ -12,13 +12,19 @@ import com.hirewise.be.domain.ApplicationFile;
 import com.hirewise.be.domain.ApplicationFileRole;
 import com.hirewise.be.domain.Department;
 import com.hirewise.be.domain.JobPosition;
+import com.hirewise.be.domain.PipelineStage;
+import com.hirewise.be.domain.PipelineTemplate;
 import com.hirewise.be.domain.StoredFile;
+import com.hirewise.be.dto.response.AiScreeningBatchResponseDto;
 import com.hirewise.be.dto.response.AiScreeningResultResponseDto;
+import com.hirewise.be.exception.BadRequestException;
 import com.hirewise.be.exception.ResourceNotFoundException;
 import com.hirewise.be.repository.AiScreeningRunRepository;
 import com.hirewise.be.repository.AiSkillMatchRepository;
 import com.hirewise.be.repository.ApplicationFileRepository;
 import com.hirewise.be.repository.ApplicationRepository;
+import com.hirewise.be.repository.JobPositionRepository;
+import com.hirewise.be.repository.PipelineStageRepository;
 import com.hirewise.be.security.CurrentUser;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -64,6 +70,10 @@ class AiScreeningServiceTest {
     @Mock
     private ApplicationFileRepository applicationFileRepository;
     @Mock
+    private JobPositionRepository jobPositionRepository;
+    @Mock
+    private PipelineStageRepository pipelineStageRepository;
+    @Mock
     private AccessControlService accessControlService;
 
     private AiScreeningService aiScreeningService;
@@ -73,7 +83,8 @@ class AiScreeningServiceTest {
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         aiScreeningService = new AiScreeningService(
                 aiScreeningRunRepository, aiSkillMatchRepository, applicationRepository,
-                applicationFileRepository, accessControlService, clock);
+                applicationFileRepository, jobPositionRepository, pipelineStageRepository,
+                accessControlService, clock);
     }
 
     private Application application() {
@@ -160,6 +171,100 @@ class AiScreeningServiceTest {
 
         verify(accessControlService).checkAccess(eq(currentUser), eq(PermissionCodes.AI_VIEW), any(ResourceContext.class));
         verify(aiScreeningRunRepository).save(any(AiScreeningRun.class));
+    }
+
+    @Test
+    void runBatchForStage_jobNotFound_throwsResourceNotFound() {
+        UUID jobId = UUID.randomUUID();
+        when(jobPositionRepository.findById(jobId)).thenReturn(Optional.empty());
+        CurrentUser currentUser = new CurrentUser(1L, "recruiter@test.com", "Recruiter", Set.of());
+
+        assertThatThrownBy(() -> aiScreeningService.runBatchForStage(jobId, 10L, currentUser))
+                .isInstanceOf(ResourceNotFoundException.class);
+
+        verify(applicationRepository, never()).findByJobPosition_IdAndCurrentStage_Id(any(), any());
+    }
+
+    @Test
+    void runBatchForStage_stageBelongsToDifferentPipeline_throwsBadRequest() {
+        PipelineTemplate jobTemplate = PipelineTemplate.builder().id(1L).build();
+        PipelineTemplate otherTemplate = PipelineTemplate.builder().id(2L).build();
+        Department department = Department.builder().id(4L).build();
+        UUID jobId = UUID.randomUUID();
+        JobPosition job = JobPosition.builder().id(jobId).department(department).pipelineTemplate(jobTemplate).build();
+        PipelineStage stage = PipelineStage.builder().id(10L).pipelineTemplate(otherTemplate).build();
+
+        when(jobPositionRepository.findById(jobId)).thenReturn(Optional.of(job));
+        when(pipelineStageRepository.findById(10L)).thenReturn(Optional.of(stage));
+        CurrentUser currentUser = new CurrentUser(1L, "recruiter@test.com", "Recruiter", Set.of());
+
+        assertThatThrownBy(() -> aiScreeningService.runBatchForStage(jobId, 10L, currentUser))
+                .isInstanceOf(BadRequestException.class);
+
+        verify(applicationRepository, never()).findByJobPosition_IdAndCurrentStage_Id(any(), any());
+    }
+
+    @Test
+    void runBatchForStage_valid_queuesEveryApplicationAndCountsPendingVsFailed() {
+        PipelineTemplate template = PipelineTemplate.builder().id(1L).build();
+        Department department = Department.builder().id(4L).build();
+        UUID jobId = UUID.randomUUID();
+        JobPosition job = JobPosition.builder().id(jobId).department(department).pipelineTemplate(template).build();
+        PipelineStage stage = PipelineStage.builder().id(10L).pipelineTemplate(template).build();
+
+        Application withPdfCv = Application.builder().id(UUID.randomUUID()).jobPosition(job).build();
+        Application withoutCv = Application.builder().id(UUID.randomUUID()).jobPosition(job).build();
+
+        when(jobPositionRepository.findById(jobId)).thenReturn(Optional.of(job));
+        when(pipelineStageRepository.findById(10L)).thenReturn(Optional.of(stage));
+        when(applicationRepository.findByJobPosition_IdAndCurrentStage_Id(jobId, 10L))
+                .thenReturn(List.of(withPdfCv, withoutCv));
+        when(applicationFileRepository.findByApplication_IdAndFileRoleAndPrimaryTrue(withPdfCv.getId(), ApplicationFileRole.CV))
+                .thenReturn(Optional.of(cvFile("application/pdf")));
+        when(applicationFileRepository.findByApplication_IdAndFileRoleAndPrimaryTrue(withoutCv.getId(), ApplicationFileRole.CV))
+                .thenReturn(Optional.empty());
+        when(aiScreeningRunRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        CurrentUser currentUser = new CurrentUser(1L, "recruiter@test.com", "Recruiter", Set.of());
+
+        AiScreeningBatchResponseDto result = aiScreeningService.runBatchForStage(jobId, 10L, currentUser);
+
+        verify(accessControlService).checkAccess(eq(currentUser), eq(PermissionCodes.AI_VIEW), any(ResourceContext.class));
+        assertThat(result.getTotalApplications()).isEqualTo(2);
+        assertThat(result.getQueuedCount()).isEqualTo(1);
+        assertThat(result.getSkippedCount()).isEqualTo(1);
+        assertThat(result.getAlreadyAnalyzedCount()).isZero();
+    }
+
+    @Test
+    void runBatchForStage_applicationAlreadyHasAiMatchScore_skipsItWithoutTouchingItsCv() {
+        PipelineTemplate template = PipelineTemplate.builder().id(1L).build();
+        Department department = Department.builder().id(4L).build();
+        UUID jobId = UUID.randomUUID();
+        JobPosition job = JobPosition.builder().id(jobId).department(department).pipelineTemplate(template).build();
+        PipelineStage stage = PipelineStage.builder().id(10L).pipelineTemplate(template).build();
+
+        Application neverAnalyzed = Application.builder().id(UUID.randomUUID()).jobPosition(job).build();
+        Application alreadyAnalyzed = Application.builder().id(UUID.randomUUID()).jobPosition(job)
+                .aiMatchScore(new BigDecimal("72.00")).build();
+
+        when(jobPositionRepository.findById(jobId)).thenReturn(Optional.of(job));
+        when(pipelineStageRepository.findById(10L)).thenReturn(Optional.of(stage));
+        when(applicationRepository.findByJobPosition_IdAndCurrentStage_Id(jobId, 10L))
+                .thenReturn(List.of(neverAnalyzed, alreadyAnalyzed));
+        when(applicationFileRepository.findByApplication_IdAndFileRoleAndPrimaryTrue(neverAnalyzed.getId(), ApplicationFileRole.CV))
+                .thenReturn(Optional.of(cvFile("application/pdf")));
+        when(aiScreeningRunRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        CurrentUser currentUser = new CurrentUser(1L, "recruiter@test.com", "Recruiter", Set.of());
+
+        AiScreeningBatchResponseDto result = aiScreeningService.runBatchForStage(jobId, 10L, currentUser);
+
+        assertThat(result.getTotalApplications()).isEqualTo(2);
+        assertThat(result.getQueuedCount()).isEqualTo(1);
+        assertThat(result.getSkippedCount()).isZero();
+        assertThat(result.getAlreadyAnalyzedCount()).isEqualTo(1);
+        // Hồ sơ đã có điểm AI không được đụng tới CV của nó chút nào - không tốn 1 lời gọi nào.
+        verify(applicationFileRepository, never())
+                .findByApplication_IdAndFileRoleAndPrimaryTrue(eq(alreadyAnalyzed.getId()), any());
     }
 
     @Test
