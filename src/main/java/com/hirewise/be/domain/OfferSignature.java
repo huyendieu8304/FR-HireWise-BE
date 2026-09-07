@@ -58,7 +58,12 @@ public class OfferSignature {
     @Column(name = "signed_at", nullable = false)
     private Instant signedAt;
 
-    /** Mapped as text; PostgreSQL casts it into the {@code inet} column. */
-    @Column(name = "ip_address", columnDefinition = "inet")
+    /**
+     * The signer's IP, as text - see V36 for why this is not an {@code inet}
+     * column. Already validated by {@code ClientIpResolver}, and {@code null}
+     * when the caller's address could not be determined as an IP literal:
+     * a missing IP must never block a signature.
+     */
+    @Column(name = "ip_address", length = 45)
     private String ipAddress;
 }
