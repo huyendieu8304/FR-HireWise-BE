@@ -16,6 +16,7 @@ import com.hirewise.be.repository.AiSkillMatchRepository;
 import com.hirewise.be.repository.ApplicationFileRepository;
 import com.hirewise.be.repository.ApplicationRepository;
 import com.hirewise.be.service.FileStorageService;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -69,7 +70,15 @@ class AiScreeningDispatcherTest {
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         // self-proxy param only matters for dispatchPendingRuns (not exercised here) - null is fine.
         dispatcher = new AiScreeningDispatcher(aiScreeningRunRepository, aiSkillMatchRepository,
-                applicationRepository, applicationFileRepository, fileStorageService, matchingEngine, clock, 10, null);
+                applicationRepository, applicationFileRepository, fileStorageService, matchingEngine, clock, 10, 3, null);
+    }
+
+    @AfterEach
+    void tearDown() {
+        // Frees the dispatchExecutor's threads right away instead of leaving them parked
+        // for the rest of this JVM's test run (this suite never calls dispatchPendingRuns,
+        // so the pool sits unused, but @PreDestroy only fires on a real Spring context close).
+        dispatcher.shutdownDispatchExecutor();
     }
 
     private Application application() {
@@ -97,7 +106,7 @@ class AiScreeningDispatcherTest {
         AiScreeningRun run = pendingRun(application);
         StoredFile storedFile = StoredFile.builder().mimeType("application/pdf").build();
         ApplicationFile cvFile = ApplicationFile.builder().file(storedFile).fileRole(ApplicationFileRole.CV).primary(true).build();
-        byte[] cvBytes = {1, 2, 3};
+        byte[] cvBytes = "%PDF-1.4 fake pdf content".getBytes();
 
         when(applicationFileRepository.findByApplication_IdAndFileRoleAndPrimaryTrue(APPLICATION_ID, ApplicationFileRole.CV))
                 .thenReturn(Optional.of(cvFile));
@@ -129,7 +138,7 @@ class AiScreeningDispatcherTest {
 
         when(applicationFileRepository.findByApplication_IdAndFileRoleAndPrimaryTrue(APPLICATION_ID, ApplicationFileRole.CV))
                 .thenReturn(Optional.of(cvFile));
-        when(fileStorageService.downloadFile(storedFile)).thenReturn(new byte[]{1});
+        when(fileStorageService.downloadFile(storedFile)).thenReturn("%PDF-1.4 fake pdf content".getBytes());
         when(matchingEngine.modelName()).thenReturn("claude-haiku-4-5");
         when(matchingEngine.promptVersion()).thenReturn("v1");
         when(matchingEngine.analyze(any(), any())).thenThrow(new MatchingEngineException("timeout", null));
@@ -142,6 +151,28 @@ class AiScreeningDispatcherTest {
         assertThat(application.getAiMatchScore()).isNull();
         verify(applicationRepository, never()).save(any());
         verify(aiSkillMatchRepository, never()).save(any());
+    }
+
+    @Test
+    void dispatchOne_cvBytesNotValidPdf_marksRunFailedWithoutCallingEngine() {
+        Application application = application();
+        AiScreeningRun run = pendingRun(application);
+        StoredFile storedFile = StoredFile.builder().mimeType("application/pdf").build();
+        ApplicationFile cvFile = ApplicationFile.builder().file(storedFile).fileRole(ApplicationFileRole.CV).primary(true).build();
+
+        when(applicationFileRepository.findByApplication_IdAndFileRoleAndPrimaryTrue(APPLICATION_ID, ApplicationFileRole.CV))
+                .thenReturn(Optional.of(cvFile));
+        // mimeType="application/pdf" nhưng bytes thật KHÔNG bắt đầu bằng "%PDF-" -
+        // vd .doc bị đổi tên/khai báo Content-Type sai lúc nộp hồ sơ.
+        when(fileStorageService.downloadFile(storedFile)).thenReturn("not a real pdf".getBytes());
+        when(aiScreeningRunRepository.findById(run.getId())).thenReturn(Optional.of(run));
+
+        dispatcher.dispatchOne(run.getId());
+
+        assertThat(run.getStatus()).isEqualTo(AiScreeningStatus.FAILED);
+        assertThat(run.getErrorMessage()).contains("không phải PDF hợp lệ");
+        assertThat(application.getAiMatchScore()).isNull();
+        verify(matchingEngine, never()).analyze(any(), any());
     }
 
     @Test

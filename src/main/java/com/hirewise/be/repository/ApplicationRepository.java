@@ -52,4 +52,22 @@ public interface ApplicationRepository extends JpaRepository<Application, UUID> 
             ORDER BY a.lastStageChangedAt ASC
             """)
     List<Application> findByJobPosition_IdFetchCandidateAndStage(@Param("jobPositionId") UUID jobPositionId);
+
+    /**
+     * "Quét cả cột" (bulk AI Screening button trên Kanban): mọi Application
+     * của 1 Job đang nằm ở đúng 1 Stage (cột) cụ thể - oldest applied first,
+     * để phân tích những hồ sơ chờ lâu nhất trước.
+     *
+     * @param jobPositionId id of the job position
+     * @param stageId       id of the pipeline stage (column)
+     * @return every application of this job currently sitting in this stage
+     */
+    @Query("""
+            SELECT a FROM Application a
+            JOIN FETCH a.candidate
+            WHERE a.jobPosition.id = :jobPositionId AND a.currentStage.id = :stageId
+            ORDER BY a.appliedAt ASC
+            """)
+    List<Application> findByJobPosition_IdAndCurrentStage_Id(
+            @Param("jobPositionId") UUID jobPositionId, @Param("stageId") Long stageId);
 }

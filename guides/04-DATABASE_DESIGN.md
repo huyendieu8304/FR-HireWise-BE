@@ -162,7 +162,7 @@ Gán role có lịch sử hiệu lực (`valid_from`/`valid_to`), **không** ph�
 cột role cố định trên `users` — vì 1 user có thể giữ nhiều role đồng
 thời (vd vừa Recruiter vừa Interviewer). `valid_to IS NULL` = đang hiệu
 lực (dùng trong `findActiveUserIdsByRoleCode`, xem
-[US-REC-02_Submit-Job-Approval-Backend-Integration.md](../../Planning/explain/US-REC-02_Submit-Job-Approval-Backend-Integration.md)).
+[06-Gan-Pipeline-va-Gui-duyet-Job_Da-lam-gi.md](../../Planning/explain/06-Gan-Pipeline-va-Gui-duyet-Job_Da-lam-gi.md)).
 
 ### `user_sessions` (V6)
 
@@ -201,7 +201,7 @@ liệu nào").
 | Cột | Ghi chú |
 |---|---|
 | `department_id` | nullable — `NULL` = dùng chung toàn hệ thống (UC-04 AF-01) |
-| `status` | CHECK `'DRAFT'`\|`'ACTIVE'` — `DRAFT→ACTIVE` là điều kiện tiên quyết của UC-13, xem [US-REC-02_Submit-Job-Approval-Backend-Integration.md](../../Planning/explain/US-REC-02_Submit-Job-Approval-Backend-Integration.md) mục 3.1 |
+| `status` | CHECK `'DRAFT'`\|`'ACTIVE'` — `DRAFT→ACTIVE` là điều kiện tiên quyết của UC-13, xem [06-Gan-Pipeline-va-Gui-duyet-Job_Da-lam-gi.md](../../Planning/explain/06-Gan-Pipeline-va-Gui-duyet-Job_Da-lam-gi.md) mục 3.1 |
 
 ### `pipeline_stages` (V13)
 
@@ -462,7 +462,7 @@ Service (xem `guides/03-ERROR_HANDLING.md`).
   `V14` nhưng không có bất kỳ đoạn code Java nào gọi
   `.setHiringManager(...)` — thiết kế thông báo Hiring Manager ở UC-13
   cố tình dùng Access Scope (`user_access_scopes` + role) thay vì cột
-  này, xem [US-REC-02_Cach-code-Fullstack.md](../../Planning/explain/US-REC-02_Cach-code-Fullstack.md)
+  này, xem [06-Gan-Pipeline-va-Gui-duyet-Job_Cach-code.md](../../Planning/explain/06-Gan-Pipeline-va-Gui-duyet-Job_Cach-code.md)
   bước 3. Đừng dựa vào cột này để đọc dữ liệu cho tới khi có 1 luồng
   nghiệp vụ thật sự gán giá trị cho nó.
 - **`job_positions` từng tên là `job_postings`**: `V8` tạo bảng tên
@@ -484,7 +484,7 @@ Service (xem `guides/03-ERROR_HANDLING.md`).
   code**. `rejection_reasons`/`application_rejections` (UC-29, `V28`) và
   `ai_screening_runs`/`ai_skill_matches` (UC-21 AI Matching, `V29` —
   schema tối giản, không theo đầy đủ ERD gốc, xem
-  [US-REC-04_AI-Match-Analysis-Backend-Integration.md](../../Planning/explain/US-REC-04_AI-Match-Analysis-Backend-Integration.md))
+  [07-Phan-tich-AI-Match-Score_Da-lam-gi.md](../../Planning/explain/07-Phan-tich-AI-Match-Score_Da-lam-gi.md))
   đã được code, chưa cập nhật đầy đủ vào tài liệu này (mục 3-9 ở trên vẫn
   dừng ở `V27`). Khi implement Interview & Scorecard/Offer & e-Signature/
   Chatbot/SLA/Analytics, tạo migration mới tiếp theo `V30` trở đi, tham
