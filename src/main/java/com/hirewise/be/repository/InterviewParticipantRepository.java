@@ -20,5 +20,18 @@ public interface InterviewParticipantRepository extends JpaRepository<InterviewP
             """)
     List<InterviewParticipant> findByInterview_IdFetchInterviewer(@Param("interviewId") UUID interviewId);
 
+    @Query("""
+            SELECT COUNT(ip) > 0 FROM InterviewParticipant ip
+            WHERE ip.interviewer.id = :interviewerId
+              AND ip.interview.interviewDate = :interviewDate
+              AND ip.interview.interviewTime = :interviewTime
+              AND ip.interview.status != :status
+            """)
+    boolean existsByInterviewer_IdAndInterview_InterviewDateAndInterview_InterviewTimeAndInterview_StatusNot(
+            @Param("interviewerId") Long interviewerId,
+            @Param("interviewDate") java.time.LocalDate interviewDate,
+            @Param("interviewTime") java.time.LocalTime interviewTime,
+            @Param("status") com.hirewise.be.domain.InterviewStatus status);
+
     void deleteByInterview_Id(UUID interviewId);
 }
