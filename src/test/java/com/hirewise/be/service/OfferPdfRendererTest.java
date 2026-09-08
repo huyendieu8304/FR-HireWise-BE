@@ -6,6 +6,8 @@ import com.hirewise.be.domain.JobPosition;
 import com.hirewise.be.domain.Offer;
 import com.hirewise.be.domain.OfferStatus;
 import com.hirewise.be.domain.SignatureMethod;
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.text.PDFTextStripper;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -84,6 +86,54 @@ class OfferPdfRendererTest {
         assertThat(pdf).isNotEmpty().startsWith(PDF_MAGIC);
     }
 
+    /**
+     * The reason the fonts are bundled: PDFBox's built-in Helvetica is
+     * WinAnsi-only, so before this every diacritic in a candidate's name came
+     * out broken. Extracting the text back out is the only way to tell -
+     * a PDF renders "successfully" either way.
+     */
+    @Test
+    void vietnameseTextSurvivesIntoThePdf() throws Exception {
+        String body = "<p>Kính gửi <strong>Nguyễn Thị Hồng Nhung</strong>,</p>"
+                + "<p>Vị trí: Kỹ sư phần mềm cấp cao</p>"
+                + "<p>Mức lương chính thức: 25.000.000 đồng một tháng</p>"
+                + "<p>Ngày nhận việc dự kiến: 01/10/2026</p>";
+
+        String text = extractText(renderer.render(offer(body), SignatureMethod.TYPE,
+                "Nguyễn Thị Hồng Nhung", null, SIGNED_AT));
+
+        assertThat(text)
+                .contains("Kính gửi")
+                .contains("Nguyễn Thị Hồng Nhung")
+                .contains("Kỹ sư phần mềm cấp cao")
+                .contains("đồng một tháng")
+                .contains("dự kiến");
+    }
+
+    /** Every Vietnamese diacritic shape, including the ones stacked on ơ/ư/ă/â/ê/ô. */
+    @Test
+    void everyVietnameseDiacriticIsRendered() throws Exception {
+        String alphabet = "ăâđêôơư ÀÁẢÃẠ ầẩẫậ ếệểễ ồốổỗộ ờớởỡợ ừứửữự ỳýỷỹỵ";
+
+        String text = extractText(renderer.render(offer("<p>" + alphabet + "</p>"),
+                SignatureMethod.TYPE, "Lê Văn Đức", null, SIGNED_AT));
+
+        for (String token : alphabet.split(" ")) {
+            assertThat(text).as("diacritic group %s", token).contains(token);
+        }
+    }
+
+    @Test
+    void aDrawnSignatureStillRendersTheNameBelowItInVietnamese() throws Exception {
+        String png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ"
+                + "AAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
+        String text = extractText(renderer.render(offer("<p>Điều khoản</p>"), SignatureMethod.DRAW,
+                "Trần Quốc Đại", png, SIGNED_AT));
+
+        assertThat(text).contains("Điều khoản").contains("Trần Quốc Đại");
+    }
+
     @Test
     void toXmlSafeEntities_convertsNamedEntitiesToNumericOnes() {
         assertThat(OfferPdfRenderer.toXmlSafeEntities("a &middot; b")).isEqualTo("a &#183; b");
@@ -106,6 +156,13 @@ class OfferPdfRendererTest {
     @Test
     void toXmlSafeEntities_leavesNumericReferencesUntouched() {
         assertThat(OfferPdfRenderer.toXmlSafeEntities("&#183; &#x2014;")).isEqualTo("&#183; &#x2014;");
+    }
+
+    /** Reads the text layer back out, which is what proves the glyphs are really there. */
+    private static String extractText(byte[] pdf) throws Exception {
+        try (PDDocument document = PDDocument.load(pdf)) {
+            return new PDFTextStripper().getText(document);
+        }
     }
 
     private static Offer offer(String renderedBody) {
