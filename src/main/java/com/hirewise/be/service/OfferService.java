@@ -4,22 +4,29 @@ import com.hirewise.be.authorization.AccessControlService;
 import com.hirewise.be.authorization.PermissionCodes;
 import com.hirewise.be.authorization.ResourceContext;
 import com.hirewise.be.domain.Application;
+import com.hirewise.be.domain.ApplicationStageHistory;
+import com.hirewise.be.domain.ApplicationStatus;
 import com.hirewise.be.domain.Offer;
 import com.hirewise.be.domain.OfferStatus;
 import com.hirewise.be.domain.OfferTemplate;
 import com.hirewise.be.domain.OfferTemplateStatus;
+import com.hirewise.be.domain.PipelineStage;
+import com.hirewise.be.domain.StageTransitionType;
 import com.hirewise.be.domain.StageType;
 import com.hirewise.be.domain.User;
 import com.hirewise.be.dto.request.CreateOfferRequestDto;
 import com.hirewise.be.dto.response.OfferResponseDto;
 import com.hirewise.be.dto.response.OfferTemplateResponseDto;
+import com.hirewise.be.exception.BadRequestException;
 import com.hirewise.be.exception.BusinessConflictException;
 import com.hirewise.be.exception.ErrorCode;
 import com.hirewise.be.exception.ResourceNotFoundException;
 import com.hirewise.be.mapper.OfferMapper;
 import com.hirewise.be.repository.ApplicationRepository;
+import com.hirewise.be.repository.ApplicationStageHistoryRepository;
 import com.hirewise.be.repository.OfferRepository;
 import com.hirewise.be.repository.OfferTemplateRepository;
+import com.hirewise.be.repository.PipelineStageRepository;
 import com.hirewise.be.repository.UserRepository;
 import com.hirewise.be.security.CurrentUser;
 import lombok.AccessLevel;
@@ -58,6 +65,8 @@ public class OfferService {
     private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
 
     ApplicationRepository applicationRepository;
+    ApplicationStageHistoryRepository applicationStageHistoryRepository;
+    PipelineStageRepository pipelineStageRepository;
     OfferRepository offerRepository;
     OfferTemplateRepository offerTemplateRepository;
     UserRepository userRepository;
@@ -98,18 +107,30 @@ public class OfferService {
      *
      * @param applicationId id of the Application being offered
      * @param request       template choice plus salary, probation rate, start
-     *                      date and answer deadline
+     *                      date, answer deadline and - only from the Kanban
+     *                      drag path - the Offer stage to move onto first
      * @param currentUser   authenticated caller (already ownership-checked by the controller)
      * @return the Draft offer just created
-     * @throws ResourceNotFoundException if the Application or the template doesn't exist
-     * @throws BusinessConflictException if the Application is not at an Offer stage,
-     *                                    already has an active Offer (EX-01, BR-OFFER-01),
-     *                                    the template is inactive, or the answer deadline
-     *                                    is not before the start date
+     * @throws ResourceNotFoundException if the Application, the target stage or the
+     *                                    template doesn't exist
+     * @throws BadRequestException       if the target stage belongs to another pipeline
+     *                                    template (UC-23)
+     * @throws BusinessConflictException if the Application already sits in a terminal
+     *                                    stage (BR-KANBAN-03), the target stage is
+     *                                    inactive, the Application is not at an Offer
+     *                                    stage, it already has an active Offer
+     *                                    (EX-01, BR-OFFER-01), the template is inactive,
+     *                                    or the answer deadline is not before the start date
      */
     @Transactional
     public OfferResponseDto create(UUID applicationId, CreateOfferRequestDto request, CurrentUser currentUser) {
         Application application = findApplicationOrThrow(applicationId);
+
+        // UC-23: dragging a card onto an Offer column must not record the stage
+        // change unless the Offer is really created, so the move happens here,
+        // inside the same transaction - any validation below rolls it back. Same
+        // shape as InterviewService#scheduleInterview does for INTERVIEW columns.
+        moveOntoOfferStageIfRequested(application, request.getTargetStageId(), currentUser);
 
         // TODO: UC-28 - once Scorecards exist, also require a completed
         // Scorecard evaluated as "Dat" before an Offer may be created. The
@@ -194,6 +215,72 @@ public class OfferService {
         return offerRepository.findFirstByApplication_IdOrderByCreatedAtDesc(applicationId)
                 .map(OfferMapper::toDto)
                 .orElse(null);
+    }
+
+    /**
+     * UC-23 half of the Kanban drag onto an Offer column: validates the drop
+     * exactly the way {@link KanbanService#moveStage} would, then moves the
+     * Application and appends the BR-KANBAN-01 audit row - all still inside
+     * {@link #create}'s transaction, so an Offer that fails to be created
+     * leaves the Application on its original stage.
+     * <p>
+     * A {@code null} id, or one naming the stage the Application already sits
+     * on, is the Applicant Card button path and does nothing here.
+     *
+     * @param application   the Application being offered, already loaded
+     * @param targetStageId the OFFER-typed stage the card was dropped on, may be {@code null}
+     * @param currentUser   authenticated caller, recorded as the author of the move
+     */
+    private void moveOntoOfferStageIfRequested(
+            Application application, Long targetStageId, CurrentUser currentUser) {
+        PipelineStage fromStage = application.getCurrentStage();
+        if (targetStageId == null || targetStageId.equals(fromStage.getId())) {
+            return;
+        }
+
+        // BR-KANBAN-03: a terminal Application only leaves its stage through an
+        // explicit "Restore" action - not yet built - never a drag.
+        if (fromStage.isTerminal()) {
+            throw new BusinessConflictException(ErrorCode.APPLICATION_STAGE_TERMINAL, fromStage.getName());
+        }
+
+        PipelineStage toStage = pipelineStageRepository.findById(targetStageId)
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        ErrorCode.PIPELINE_STAGE_NOT_FOUND, targetStageId));
+
+        Long pipelineTemplateId = application.getJobPosition().getPipelineTemplate().getId();
+        if (!toStage.getPipelineTemplate().getId().equals(pipelineTemplateId)) {
+            throw new BadRequestException(ErrorCode.INVALID_STAGE_TRANSITION);
+        }
+        // BR-KANBAN-03: a soft-deleted stage must never accept a new drop.
+        if (!toStage.isActive()) {
+            throw new BusinessConflictException(ErrorCode.PIPELINE_STAGE_INACTIVE, toStage.getId());
+        }
+        if (toStage.getStageType() != StageType.OFFER) {
+            throw new BusinessConflictException(ErrorCode.APPLICATION_NOT_IN_OFFER_STAGE, toStage.getName());
+        }
+
+        Instant now = Instant.now(clock);
+        application.setCurrentStage(toStage);
+        // An Offer stage is not terminal, so the same status KanbanService#deriveStatus
+        // would pick; OFFER_SENT stays the business of UC-37's send step.
+        application.setStatus(ApplicationStatus.IN_PROGRESS);
+        application.setLastStageChangedAt(now);
+        application.setUpdatedAt(now);
+        applicationRepository.save(application);
+
+        // BR-KANBAN-01: append-only audit trail of every stage change.
+        applicationStageHistoryRepository.save(ApplicationStageHistory.builder()
+                .application(application)
+                .fromStage(fromStage)
+                .toStage(toStage)
+                .changedBy(userRepository.getReferenceById(currentUser.userId()))
+                .transitionType(StageTransitionType.MANUAL)
+                .changedAt(now)
+                .build());
+
+        log.info("Application {} moved stage {} -> {} by user {} while creating an offer",
+                application.getId(), fromStage.getId(), toStage.getId(), currentUser.userId());
     }
 
     private Application findApplicationOrThrow(UUID applicationId) {

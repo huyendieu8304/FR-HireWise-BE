@@ -152,7 +152,7 @@ public class KanbanService {
                 || toStage.getId().equals(fromStage.getId())) {
             throw new BadRequestException(ErrorCode.INVALID_STAGE_TRANSITION);
         }
-        // BR-KANBAN-03: a soft-deleted (UC-06) stage must never accept a new drop.
+        // BR-KANBAN-03: a soft-deleted stage must never accept a new drop.
         if (!toStage.isActive()) {
             throw new BusinessConflictException(ErrorCode.PIPELINE_STAGE_INACTIVE, toStage.getId());
         }
