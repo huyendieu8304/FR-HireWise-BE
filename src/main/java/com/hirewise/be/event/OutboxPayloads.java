@@ -208,6 +208,40 @@ public final class OutboxPayloads {
     }
 
     /**
+     * Payload for {@link OutboxEventType#BOOKING_LINK_EMAIL} (EM-06, UC-25).
+     */
+    public static Map<String, Object> bookingLinkEmail(
+            String email, String candidateName, String jobTitle,
+            String bookingLink, String expiryHours, String recruiterName) {
+        Map<String, Object> payload = new java.util.HashMap<>();
+        payload.put("email", email == null ? "" : email);
+        payload.put("candidateName", candidateName == null ? "" : candidateName);
+        payload.put("jobTitle", jobTitle == null ? "" : jobTitle);
+        payload.put("bookingLink", bookingLink == null ? "" : bookingLink);
+        payload.put("expiryHours", expiryHours == null ? "168" : expiryHours);
+        payload.put("recruiterName", recruiterName == null ? "" : recruiterName);
+        return java.util.Collections.unmodifiableMap(payload);
+    }
+
+    /**
+     * Payload for {@link OutboxEventType#BOOKING_CONFIRMED_EMAIL} (EM-07, UC-35).
+     */
+    public static Map<String, Object> bookingConfirmedEmail(
+            String email, String candidateName, String jobTitle,
+            String interviewDate, String interviewTime, String locationOrLink,
+            String mode) {
+        Map<String, Object> payload = new java.util.HashMap<>();
+        payload.put("email", email == null ? "" : email);
+        payload.put("candidateName", candidateName == null ? "" : candidateName);
+        payload.put("jobTitle", jobTitle == null ? "" : jobTitle);
+        payload.put("interviewDate", interviewDate == null ? "" : interviewDate);
+        payload.put("interviewTime", interviewTime == null ? "" : interviewTime);
+        payload.put("locationOrLink", locationOrLink == null ? "" : locationOrLink);
+        payload.put("interviewMode", mode == null ? "ONLINE" : mode);
+        return java.util.Collections.unmodifiableMap(payload);
+    }
+
+    /**
      * Payload for {@link OutboxEventType#JOB_SHARE_SUMMARY_EMAIL} (EM-10, UC-32
      * step 4). Sent to the Recruiter once they finish sharing a Job.
      *
@@ -230,4 +264,5 @@ public final class OutboxPayloads {
         return java.util.Collections.unmodifiableMap(payload);
     }
 }
+
 

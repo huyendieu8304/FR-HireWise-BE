@@ -33,5 +33,19 @@ public interface InterviewParticipantRepository extends JpaRepository<InterviewP
             @Param("interviewTime") java.time.LocalTime interviewTime,
             @Param("status") com.hirewise.be.domain.InterviewStatus status);
 
+    @Query("""
+            SELECT new com.hirewise.be.dto.response.InterviewerBusySlotDto(ip.interview.interviewDate, ip.interview.interviewTime)
+            FROM InterviewParticipant ip
+            WHERE ip.interviewer.id = :interviewerId
+              AND ip.interview.interviewDate BETWEEN :startDate AND :endDate
+              AND ip.interview.status != :status
+            ORDER BY ip.interview.interviewDate ASC, ip.interview.interviewTime ASC
+            """)
+    List<com.hirewise.be.dto.response.InterviewerBusySlotDto> findBusySlotsByInterviewer(
+            @Param("interviewerId") Long interviewerId,
+            @Param("startDate") java.time.LocalDate startDate,
+            @Param("endDate") java.time.LocalDate endDate,
+            @Param("status") com.hirewise.be.domain.InterviewStatus status);
+
     void deleteByInterview_Id(UUID interviewId);
 }
