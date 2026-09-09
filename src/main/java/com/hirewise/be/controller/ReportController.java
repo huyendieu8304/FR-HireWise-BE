@@ -1,5 +1,6 @@
 package com.hirewise.be.controller;
 
+import com.hirewise.be.dto.response.PipelineVelocityReportResponseDto;
 import com.hirewise.be.dto.response.SourceRoiReportResponseDto;
 import com.hirewise.be.security.CurrentUser;
 import com.hirewise.be.security.CurrentUserPrincipal;
@@ -57,6 +58,28 @@ public class ReportController {
             @CurrentUserPrincipal CurrentUser currentUser) {
 
         return ResponseEntity.ok(reportService.getSourceRoiReport(
+                currentUser, fromDate, toDate, departmentId, jobPositionId));
+    }
+
+    /**
+     * UC-43: average, median and P90 time in each Stage, plus the bottleneck.
+     *
+     * @param fromDate      inclusive first day; defaults to 90 days before {@code toDate}
+     * @param toDate        inclusive last day; defaults to today
+     * @param departmentId  optional department filter
+     * @param jobPositionId optional Job filter
+     * @param currentUser   authenticated caller, must hold {@code REPORT_VIEW}
+     * @return the Pipeline Velocity dashboard for the caller scope
+     */
+    @GetMapping("/pipeline-velocity")
+    public ResponseEntity<PipelineVelocityReportResponseDto> pipelineVelocity(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate,
+            @RequestParam(required = false) Long departmentId,
+            @RequestParam(required = false) UUID jobPositionId,
+            @CurrentUserPrincipal CurrentUser currentUser) {
+
+        return ResponseEntity.ok(reportService.getPipelineVelocityReport(
                 currentUser, fromDate, toDate, departmentId, jobPositionId));
     }
 }

@@ -1,9 +1,12 @@
 package com.hirewise.be.mapper;
 
 import com.hirewise.be.domain.PublishingChannel;
+import com.hirewise.be.dto.response.PipelineVelocityReportResponseDto;
 import com.hirewise.be.dto.response.SourceRoiReportResponseDto;
 import com.hirewise.be.repository.projection.ChannelTrafficRow;
 import com.hirewise.be.repository.projection.SourceRoiRow;
+import com.hirewise.be.repository.projection.StageVelocityRow;
+import com.hirewise.be.repository.projection.TimeToHireRow;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -206,6 +209,119 @@ public final class ReportMapper {
         return BigDecimal.valueOf(numerator)
                 .multiply(BigDecimal.valueOf(100))
                 .divide(BigDecimal.valueOf(denominator), SCALE, RoundingMode.HALF_UP);
+    }
+
+    /**
+     * UC-43 EX-01: the shape returned when the filter matches nothing, so the
+     * front end can render ME-37 off a normal 200 response.
+     *
+     * @param fromDate inclusive first day of the resolved range
+     * @param toDate   inclusive last day of the resolved range
+     * @return a report with no stages
+     */
+    public static PipelineVelocityReportResponseDto emptyPipelineVelocity(LocalDate fromDate,
+                                                                          LocalDate toDate) {
+        return PipelineVelocityReportResponseDto.builder()
+                .stages(List.of())
+                .hiredCount(0)
+                .fromDate(fromDate)
+                .toDate(toDate)
+                .build();
+    }
+
+    /**
+     * UC-43: assembles the Pipeline Velocity dashboard and picks the bottleneck.
+     *
+     * <p>The flag goes to a stage that breaches its configured SLA, because
+     * that is an objective miss against a target somebody set. Only when no
+     * stage breaches - or none has an SLA at all - does it fall back to the
+     * slowest stage, and even then only among stages with at least
+     * {@code minSampleSize} completed visits. Calling a stage with two
+     * measurements the worst in the pipeline would be noise dressed up as a
+     * finding.</p>
+     *
+     * @param stageRows     per-stage aggregates, already in pipeline order
+     * @param timeToHire    end-to-end figures over the same cohort
+     * @param fromDate      inclusive first day of the resolved range
+     * @param toDate        inclusive last day of the resolved range
+     * @param minSampleSize completed visits a stage needs before it can be
+     *                      flagged as the slowest
+     * @return the fully computed report
+     */
+    public static PipelineVelocityReportResponseDto toPipelineVelocityReport(
+            List<StageVelocityRow> stageRows,
+            TimeToHireRow timeToHire,
+            LocalDate fromDate,
+            LocalDate toDate,
+            int minSampleSize) {
+
+        List<PipelineVelocityReportResponseDto.StageRow> stages = new ArrayList<>();
+        for (StageVelocityRow row : stageRows) {
+            stages.add(toStageRow(row));
+        }
+
+        PipelineVelocityReportResponseDto.StageRow bottleneck = stages.stream()
+                .filter(PipelineVelocityReportResponseDto.StageRow::isSlaBreached)
+                .max(Comparator.comparing(PipelineVelocityReportResponseDto.StageRow::getAvgDays))
+                .orElseGet(() -> stages.stream()
+                        .filter(stage -> stage.getCompletedCount() >= minSampleSize)
+                        .filter(stage -> stage.getAvgDays() != null)
+                        .max(Comparator.comparing(PipelineVelocityReportResponseDto.StageRow::getAvgDays))
+                        .orElse(null));
+
+        if (bottleneck != null) {
+            bottleneck.setBottleneck(true);
+        }
+
+        return PipelineVelocityReportResponseDto.builder()
+                .stages(stages)
+                .hiredCount(timeToHire == null ? 0 : timeToHire.getHiredCount())
+                .avgTimeToHireDays(timeToHire == null ? null : scaled(timeToHire.getAvgDaysToHire()))
+                .bottleneckStageCode(bottleneck == null ? null : bottleneck.getStageCode())
+                .fromDate(fromDate)
+                .toDate(toDate)
+                .build();
+    }
+
+    /**
+     * Builds one stage row and evaluates it against its SLA.
+     *
+     * <p>{@code passThroughRate} divides by decided visits (advanced plus
+     * rejected) rather than by everyone who entered: applications still sitting
+     * in the stage have not failed it, they simply have not been judged yet,
+     * and counting them as failures would make every busy stage look leaky.</p>
+     *
+     * @param row the raw aggregate for one stage
+     * @return the row as the dashboard shows it, bottleneck flag not yet set
+     */
+    private static PipelineVelocityReportResponseDto.StageRow toStageRow(StageVelocityRow row) {
+        BigDecimal avgDays = scaled(row.getAvgDays());
+        BigDecimal slaDays = row.getSlaHours() == null
+                ? null
+                : BigDecimal.valueOf(row.getSlaHours())
+                        .divide(BigDecimal.valueOf(24), SCALE, RoundingMode.HALF_UP);
+        boolean slaBreached = slaDays != null && avgDays != null && avgDays.compareTo(slaDays) > 0;
+
+        return PipelineVelocityReportResponseDto.StageRow.builder()
+                .stageCode(row.getStageCode())
+                .stageName(row.getStageName())
+                .stageType(row.getStageType())
+                .stageOrder(row.getStageOrder())
+                .avgDays(avgDays)
+                .medianDays(scaled(row.getMedianDays()))
+                .p90Days(scaled(row.getP90Days()))
+                .completedCount(row.getCompletedCount())
+                .slaDays(slaDays)
+                .slaBreached(slaBreached)
+                .bottleneck(false)
+                .enteredCount(row.getEnteredCount())
+                .advancedCount(row.getAdvancedCount())
+                .rejectedCount(row.getRejectedCount())
+                .passThroughRate(percentage(row.getAdvancedCount(),
+                        row.getAdvancedCount() + row.getRejectedCount()))
+                .waitingCount(row.getWaitingCount())
+                .maxWaitingDays(scaled(row.getMaxWaitingDays()))
+                .build();
     }
 
     /**

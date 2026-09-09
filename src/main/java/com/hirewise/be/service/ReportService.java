@@ -5,12 +5,15 @@ import com.hirewise.be.authorization.PermissionCodes;
 import com.hirewise.be.authorization.ReportScopeResolver;
 import com.hirewise.be.authorization.ResourceContext;
 import com.hirewise.be.domain.PublishingChannel;
+import com.hirewise.be.dto.response.PipelineVelocityReportResponseDto;
 import com.hirewise.be.dto.response.SourceRoiReportResponseDto;
 import com.hirewise.be.mapper.ReportMapper;
 import com.hirewise.be.repository.PublishingChannelRepository;
 import com.hirewise.be.repository.ReportRepository;
 import com.hirewise.be.repository.projection.ChannelTrafficRow;
 import com.hirewise.be.repository.projection.SourceRoiRow;
+import com.hirewise.be.repository.projection.StageVelocityRow;
+import com.hirewise.be.repository.projection.TimeToHireRow;
 import com.hirewise.be.security.CurrentUser;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
@@ -128,6 +131,43 @@ public class ReportService {
                         (first, duplicate) -> first));
 
         return ReportMapper.toSourceRoiReport(sourceRows, trafficByUtmSource, channelsByUtmSource,
+                filter.fromDate(), filter.toDate(), MIN_SAMPLE_SIZE);
+    }
+
+    /**
+     * UC-43 normal flow steps 2-4: the Pipeline Velocity dashboard.
+     *
+     * @param currentUser   authenticated caller, must hold {@code REPORT_VIEW}
+     * @param fromDate      inclusive first day of the range; defaults to 90 days back
+     * @param toDate        inclusive last day of the range; defaults to today
+     * @param departmentId  optional department filter, intersected with the caller scope
+     * @param jobPositionId optional Job filter, intersected with the caller scope
+     * @return time in each stage plus the bottleneck flag; empty stages when the
+     *         filter matches nothing (EX-01, ME-37)
+     */
+    @Transactional(readOnly = true)
+    public PipelineVelocityReportResponseDto getPipelineVelocityReport(CurrentUser currentUser,
+                                                                       LocalDate fromDate,
+                                                                       LocalDate toDate,
+                                                                       Long departmentId,
+                                                                       UUID jobPositionId) {
+
+        accessControlService.checkAccess(currentUser, PermissionCodes.REPORT_VIEW, ResourceContext.none());
+
+        ReportFilter filter = resolveFilter(currentUser, fromDate, toDate, departmentId, jobPositionId);
+        if (filter.seesNothing()) {
+            return ReportMapper.emptyPipelineVelocity(filter.fromDate(), filter.toDate());
+        }
+
+        List<StageVelocityRow> stageRows = reportRepository.aggregateStageVelocity(
+                filter.fromTs(), filter.toTs(), Instant.now(clock), filter.allJobs(),
+                filter.jobIds(), filter.departmentId(), filter.jobPositionId());
+
+        TimeToHireRow timeToHire = reportRepository.aggregateTimeToHire(
+                filter.fromTs(), filter.toTs(), filter.allJobs(), filter.jobIds(),
+                filter.departmentId(), filter.jobPositionId());
+
+        return ReportMapper.toPipelineVelocityReport(stageRows, timeToHire,
                 filter.fromDate(), filter.toDate(), MIN_SAMPLE_SIZE);
     }
 
