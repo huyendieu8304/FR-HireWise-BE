@@ -116,7 +116,7 @@ public class JobApplicationService {
         boolean duplicate = existing.isPresent();
         Application application = duplicate
                 ? updateExistingApplication(existing.get(), now)
-                : createNewApplication(candidate, job, now);
+                : createNewApplication(candidate, job, request.getSource(), now);
 
         String safeFileName = buildSafeFileName(job, candidate, cvFile.getOriginalFilename());
         String subfolderName = job.getId().toString() + "/" + application.getId().toString();
@@ -162,7 +162,8 @@ public class JobApplicationService {
     }
 
     /** place a brand-new Application into the Job's Pipeline first stage, and log the initial history event. */
-    private Application createNewApplication(Candidate candidate, JobPosition job, Instant now) {
+    private Application createNewApplication(
+            Candidate candidate, JobPosition job, String source, Instant now) {
         if (job.getPipelineTemplate() == null) {
             // Defensive: UC-13 is supposed to guarantee every job has a pipeline before it can be approved/published.
             throw new BusinessConflictException(ErrorCode.PIPELINE_NOT_CONFIGURED, job.getId());
@@ -179,6 +180,10 @@ public class JobApplicationService {
                 .status(ApplicationStatus.NEW)
                 .appliedAt(now)
                 .lastStageChangedAt(now)
+                // UC-32: only set on a first application. A repeat application
+                // (BR-APPLY-02 AF-01) keeps whichever channel first brought this
+                // candidate in, rather than being re-attributed to the latest link.
+                .source(source)
                 .createdAt(now)
                 .updatedAt(now)
                 .build();

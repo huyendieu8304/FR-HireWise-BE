@@ -27,7 +27,10 @@ public enum OutboxEventType {
     /** EM-06 (UC-25): booking link sent to candidate for self-service scheduling. */
     BOOKING_LINK_EMAIL,
     /** EM-07 (UC-35): booking confirmation email sent to candidate after selecting a slot. */
-    BOOKING_CONFIRMED_EMAIL
+    BOOKING_CONFIRMED_EMAIL,
+    /** EM-10 (UC-32 step 4): summary of which channels the Recruiter shared a Job to. */
+    JOB_SHARE_SUMMARY_EMAIL,
+
     ;
 }
 

@@ -33,4 +33,13 @@ public class SubmitApplicationRequestDto {
     @NotBlank(message = "{validation.application.phone.required}")
     @Pattern(regexp = "^(0|\\+84)(3|5|7|8|9)[0-9]{8}$", message = "{validation.application.phone.invalid}")
     private String phone;
+
+    /**
+     * UC-32: the {@code utm_source} the candidate arrived with, echoed back by
+     * the apply form. Not typed by anyone - it comes from the share link - so
+     * it is optional and only length-capped rather than validated for meaning;
+     * a value matching no channel simply never appears in the stats.
+     */
+    @Size(max = 50)
+    private String source;
 }
