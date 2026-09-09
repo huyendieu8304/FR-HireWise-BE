@@ -241,6 +241,13 @@ public class JobService {
         accessControlService.checkAccess(currentUser, PermissionCodes.JOB_EDIT,
                 ResourceContext.department(currentDepartmentId));
 
+        // UC-44 EX-01 / ME-38: Paused and Closed are a strict subset of "not editable",
+        // but they get their own message because the way out is different - a Paused job
+        // can be resumed and then edited, a Closed one never can. Checked first so the
+        // generic BR-JOB-04 message below never swallows that distinction.
+        if (job.getStatus() == JobStatus.PAUSED || job.getStatus() == JobStatus.CLOSED) {
+            throw new BusinessConflictException(ErrorCode.JOB_POSITION_PAUSED_OR_CLOSED, job.getStatus());
+        }
         // BR-JOB-04: only Draft/Rejected jobs can still be edited here - a Published job is
         // only Closed/Paused (a different action), never edited back through this endpoint.
         if (job.getStatus() != JobStatus.DRAFT && job.getStatus() != JobStatus.REJECTED) {
