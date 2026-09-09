@@ -27,6 +27,8 @@ public final class PermissionCodes {
     public static final String JOB_APPROVE = "JOB_APPROVE";
     public static final String JOB_VIEW = "JOB_VIEW";
     public static final String JOB_PUBLISH = "JOB_PUBLISH";
+    /** UC-44: close, pause or resume a Job that is already Published. */
+    public static final String JOB_CLOSE_PAUSE = "JOB_CLOSE_PAUSE";
 
     public static final String APPLICATION_VIEW = "APPLICATION_VIEW";
     public static final String APPLICATION_MOVE_STAGE = "APPLICATION_MOVE_STAGE";
