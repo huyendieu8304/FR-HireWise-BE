@@ -34,4 +34,7 @@ public interface InterviewParticipantRepository extends JpaRepository<InterviewP
             @Param("status") com.hirewise.be.domain.InterviewStatus status);
 
     void deleteByInterview_Id(UUID interviewId);
+
+    /** UC-28 eligibility check: is this user one of the Interviewers assigned to this Interview? */
+    boolean existsByInterview_IdAndInterviewer_Id(UUID interviewId, Long interviewerId);
 }

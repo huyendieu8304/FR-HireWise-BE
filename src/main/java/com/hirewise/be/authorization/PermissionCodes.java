@@ -39,6 +39,8 @@ public final class PermissionCodes {
 
     public static final String SCORECARD_TEMPLATE_MANAGE = "SCORECARD_TEMPLATE_MANAGE";
     public static final String SCORECARD_SUBMIT = "SCORECARD_SUBMIT";
+    /** BR-SCORE-03: narrower than SCORECARD_TEMPLATE_MANAGE - HR Admin only, not Hiring Manager (seeded in V39). */
+    public static final String SCORECARD_UNLOCK = "SCORECARD_UNLOCK";
 
     public static final String OFFER_CREATE = "OFFER_CREATE";
     public static final String OFFER_SEND = "OFFER_SEND";
