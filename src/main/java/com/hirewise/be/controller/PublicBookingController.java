@@ -44,4 +44,17 @@ public class PublicBookingController {
         return ResponseEntity.ok(interviewService.getBookingPage(token));
     }
 
+    /**
+     * UC-35: Confirms a booking slot chosen by the candidate.
+     *
+     * @param token unique UUID token from candidate's booking link
+     * @param request slot selection details
+     * @return confirmation of the scheduled interview
+     */
+    @PostMapping("/{token}/confirm")
+    public ResponseEntity<BookingConfirmResponseDto> confirmBookingSlot(
+            @PathVariable UUID token,
+            @Valid @RequestBody ConfirmBookingSlotRequestDto request) {
+        return ResponseEntity.ok(interviewService.confirmBookingSlot(token, request));
+    }
 }

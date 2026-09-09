@@ -635,6 +635,183 @@ public class InterviewService {
     }
 
     /**
+     * UC-35: Candidate confirms a selected booking slot.
+     */
+    @Transactional
+    public BookingConfirmResponseDto confirmBookingSlot(UUID token, ConfirmBookingSlotRequestDto request) {
+        InterviewBookingRequest bookingRequest = interviewBookingRequestRepository
+                .findByBookingTokenFetch(token)
+                .orElseThrow(() -> new ResourceNotFoundException(ErrorCode.BOOKING_TOKEN_INVALID, token));
+
+        Instant now = Instant.now(clock);
+        if (bookingRequest.getStatus() != InterviewBookingRequestStatus.OPEN || bookingRequest.getExpiresAt().isBefore(now)) {
+            throw new BusinessConflictException(ErrorCode.BOOKING_TOKEN_EXPIRED);
+        }
+
+        // Pessimistic write lock on slot
+        InterviewBookingSlot slot = interviewBookingSlotRepository
+                .findByIdWithDetailsForUpdate(request.getSlotId())
+                .orElseThrow(() -> new ResourceNotFoundException(ErrorCode.BOOKING_SLOT_NOT_FOUND, request.getSlotId()));
+
+        if (!slot.getBookingRequest().getId().equals(bookingRequest.getId())) {
+            throw new BadRequestException(ErrorCode.BOOKING_SLOT_NOT_FOUND);
+        }
+
+        if (slot.getStatus() == InterviewBookingSlotStatus.CONFIRMED) {
+            throw new BusinessConflictException(ErrorCode.BOOKING_SLOT_UNAVAILABLE);
+        }
+        if (slot.getStatus() == InterviewBookingSlotStatus.HELD && slot.getHeldUntil() != null && slot.getHeldUntil().isAfter(now)) {
+            throw new BusinessConflictException(ErrorCode.BOOKING_SLOT_UNAVAILABLE);
+        }
+
+        User interviewer = bookingRequest.getInterviewer();
+        boolean hasConflict = interviewParticipantRepository
+                .existsByInterviewer_IdAndInterview_InterviewDateAndInterview_InterviewTimeAndInterview_StatusNot(
+                        interviewer.getId(), slot.getSlotDate(), slot.getSlotTime(), InterviewStatus.CANCELLED);
+        if (hasConflict) {
+            throw new BusinessConflictException(ErrorCode.INTERVIEWER_TIME_CONFLICT, interviewer.getFullName());
+        }
+
+        // Confirm slot & mark request completed
+        slot.setStatus(InterviewBookingSlotStatus.CONFIRMED);
+        slot.setSelectedAt(now);
+        interviewBookingSlotRepository.save(slot);
+
+        bookingRequest.setStatus(InterviewBookingRequestStatus.COMPLETED);
+        interviewBookingRequestRepository.save(bookingRequest);
+
+        Application application = bookingRequest.getApplication();
+        PipelineStage targetStage = bookingRequest.getTargetStage();
+        PipelineStage fromStage = application.getCurrentStage();
+
+        if (targetStage != null && !targetStage.getId().equals(fromStage.getId())) {
+            application.setCurrentStage(targetStage);
+            application.setStatus(ApplicationStatus.IN_PROGRESS);
+            application.setLastStageChangedAt(now);
+            application.setUpdatedAt(now);
+            applicationRepository.save(application);
+
+            ApplicationStageHistory history = ApplicationStageHistory.builder()
+                    .application(application)
+                    .fromStage(fromStage)
+                    .toStage(targetStage)
+                    .changedBy(bookingRequest.getCreatedBy())
+                    .transitionType(StageTransitionType.SYSTEM)
+                    .changedAt(now)
+                    .build();
+            applicationStageHistoryRepository.save(history);
+        }
+
+        // Handle Google Meet link if ONLINE
+        String effectiveLocationOrLink = bookingRequest.getLocationOrLink();
+        if (bookingRequest.getMode() == InterviewMode.ONLINE) {
+            if (effectiveLocationOrLink == null || effectiveLocationOrLink.isBlank()) {
+                String summary = String.format("Phỏng vấn %s - %s",
+                        application.getCandidate().getFullName(),
+                        application.getJobPosition().getTitle());
+                String description = String.format("Phỏng vấn tuyển dụng vị trí %s cho ứng viên %s",
+                        application.getJobPosition().getTitle(),
+                        application.getCandidate().getFullName());
+                LocalDateTime start = LocalDateTime.of(slot.getSlotDate(), slot.getSlotTime());
+                LocalDateTime end = start.plusMinutes(slot.getDurationMinutes());
+
+                List<String> attendeeEmails = new ArrayList<>();
+                if (interviewer.getEmail() != null && !interviewer.getEmail().isBlank()) {
+                    attendeeEmails.add(interviewer.getEmail());
+                }
+                if (application.getCandidate().getPrimaryEmail() != null && !application.getCandidate().getPrimaryEmail().isBlank()) {
+                    attendeeEmails.add(application.getCandidate().getPrimaryEmail());
+                }
+
+                effectiveLocationOrLink = calendarIntegrationService.createGoogleMeetMeeting(
+                                summary, description, start, end, attendeeEmails)
+                        .orElseGet(InterviewService::generateGoogleMeetLink);
+            }
+        }
+
+        // Cancel previous scheduled interviews
+        List<Interview> existingInterviews = interviewRepository.findAllByApplication_IdAndStatus(
+                application.getId(), InterviewStatus.SCHEDULED);
+        for (Interview old : existingInterviews) {
+            old.setStatus(InterviewStatus.CANCELLED);
+            old.setUpdatedAt(now);
+            interviewRepository.save(old);
+        }
+
+        // Persist interview
+        Interview interview = Interview.builder()
+                .application(application)
+                .scheduledBy(bookingRequest.getCreatedBy())
+                .interviewDate(slot.getSlotDate())
+                .interviewTime(slot.getSlotTime())
+                .mode(bookingRequest.getMode())
+                .locationOrLink(effectiveLocationOrLink)
+                .status(InterviewStatus.SCHEDULED)
+                .notes(request.getNotes())
+                .createdAt(now)
+                .updatedAt(now)
+                .build();
+        interview = interviewRepository.save(interview);
+
+        InterviewParticipant participant = InterviewParticipant.builder()
+                .interview(interview)
+                .interviewer(interviewer)
+                .createdAt(now)
+                .build();
+        interviewParticipantRepository.save(participant);
+
+        // Outbox event EM-07 for candidate
+        String candidateEmail = application.getCandidate().getPrimaryEmail();
+        String candidateName = application.getCandidate().getFullName();
+        String jobTitle = application.getJobPosition().getTitle();
+        String formattedDate = slot.getSlotDate().format(DATE_FORMATTER);
+        String formattedTime = slot.getSlotTime().format(TIME_FORMATTER);
+
+        outboxEventPublisher.publish(
+                OutboxEventType.BOOKING_CONFIRMED_EMAIL,
+                OutboxPayloads.bookingConfirmedEmail(
+                        candidateEmail,
+                        candidateName,
+                        jobTitle,
+                        formattedDate,
+                        formattedTime,
+                        effectiveLocationOrLink,
+                        bookingRequest.getMode() != null ? bookingRequest.getMode().name() : "ONLINE"
+                )
+        );
+
+        // Outbox event EM-08 for interviewer
+        outboxEventPublisher.publish(
+                OutboxEventType.INTERVIEWER_ASSIGNED_EMAIL,
+                OutboxPayloads.interviewerAssignedEmail(
+                        interviewer.getEmail(),
+                        interviewer.getFullName(),
+                        candidateName,
+                        jobTitle,
+                        formattedDate,
+                        formattedTime,
+                        effectiveLocationOrLink
+                )
+        );
+
+        log.info("Booking slot {} confirmed for token {} -> created interview {}",
+                slot.getId(), token, interview.getId());
+
+        return BookingConfirmResponseDto.builder()
+                .interviewId(interview.getId())
+                .interviewDate(slot.getSlotDate())
+                .interviewTime(slot.getSlotTime())
+                .durationMinutes(slot.getDurationMinutes())
+                .mode(bookingRequest.getMode())
+                .locationOrLink(effectiveLocationOrLink)
+                .interviewerName(interviewer.getFullName())
+                .jobTitle(jobTitle)
+                .candidateName(candidateName)
+                .message("Interview confirmed successfully")
+                .build();
+    }
+
+    /**
      * Retrieves all booking requests created for an application.
      */
     public List<BookingRequestResponseDto> getBookingRequestsForApplication(UUID applicationId, CurrentUser currentUser) {

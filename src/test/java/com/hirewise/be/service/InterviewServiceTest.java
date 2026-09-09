@@ -822,4 +822,99 @@ class InterviewServiceTest {
                 .isInstanceOf(BusinessConflictException.class);
     }
 
+    // =========================================================================
+    // UC-35: Candidate confirms slot
+    // =========================================================================
+
+    @Test
+    @DisplayName("UC-35: Confirms slot, creates interview and schedules EM-07 and EM-08 emails")
+    void confirmBookingSlot_success() {
+        UUID token = UUID.randomUUID();
+        Candidate candidate = Candidate.builder().fullName("Candidate D").primaryEmail("d@gmail.com").build();
+        JobPosition job = JobPosition.builder().title("Frontend Engineer").build();
+        Application app = Application.builder().id(UUID.randomUUID()).candidate(candidate).jobPosition(job).build();
+        User interviewer = User.builder().id(30L).fullName("Interviewer D").email("d_interviewer@hirewise.vn").build();
+        User recruiter = User.builder().id(100L).fullName("Recruiter A").build();
+
+        InterviewBookingRequest req = InterviewBookingRequest.builder()
+                .id(2L)
+                .bookingToken(token)
+                .application(app)
+                .interviewer(interviewer)
+                .createdBy(recruiter)
+                .status(InterviewBookingRequestStatus.OPEN)
+                .expiresAt(fixedInstant.plusSeconds(86400 * 5))
+                .mode(InterviewMode.ONLINE)
+                .build();
+
+        InterviewBookingSlot slot = InterviewBookingSlot.builder()
+                .id(201L)
+                .bookingRequest(req)
+                .slotDate(LocalDate.of(2026, 9, 10))
+                .slotTime(LocalTime.of(14, 0))
+                .durationMinutes(45)
+                .status(InterviewBookingSlotStatus.OPEN)
+                .build();
+
+        when(interviewBookingRequestRepository.findByBookingTokenFetch(token)).thenReturn(Optional.of(req));
+        when(interviewBookingSlotRepository.findByIdWithDetailsForUpdate(201L)).thenReturn(Optional.of(slot));
+        when(interviewParticipantRepository.existsByInterviewer_IdAndInterview_InterviewDateAndInterview_InterviewTimeAndInterview_StatusNot(
+                eq(30L), eq(LocalDate.of(2026, 9, 10)), eq(LocalTime.of(14, 0)), eq(InterviewStatus.CANCELLED)
+        )).thenReturn(false);
+        when(interviewRepository.findAllByApplication_IdAndStatus(app.getId(), InterviewStatus.SCHEDULED)).thenReturn(List.of());
+        when(interviewRepository.save(any(Interview.class))).thenAnswer(inv -> {
+            Interview i = inv.getArgument(0);
+            i.setId(UUID.randomUUID());
+            return i;
+        });
+
+        ConfirmBookingSlotRequestDto confirmReq = ConfirmBookingSlotRequestDto.builder()
+                .slotId(201L)
+                .notes("Pre-interview notes")
+                .build();
+
+        BookingConfirmResponseDto result = interviewService.confirmBookingSlot(token, confirmReq);
+
+        assertThat(result).isNotNull();
+        assertThat(result.getInterviewDate()).isEqualTo(LocalDate.of(2026, 9, 10));
+        assertThat(result.getInterviewTime()).isEqualTo(LocalTime.of(14, 0));
+        assertThat(result.getInterviewerName()).isEqualTo("Interviewer D");
+
+        assertThat(slot.getStatus()).isEqualTo(InterviewBookingSlotStatus.CONFIRMED);
+        assertThat(req.getStatus()).isEqualTo(InterviewBookingRequestStatus.COMPLETED);
+
+        verify(interviewRepository).save(any(Interview.class));
+        verify(interviewParticipantRepository).save(any(InterviewParticipant.class));
+        verify(outboxEventPublisher).publish(eq(OutboxEventType.BOOKING_CONFIRMED_EMAIL), any());
+        verify(outboxEventPublisher).publish(eq(OutboxEventType.INTERVIEWER_ASSIGNED_EMAIL), any());
+    }
+
+    @Test
+    @DisplayName("UC-35: Fails when slot is already CONFIRMED by another candidate")
+    void confirmBookingSlot_alreadyConfirmed_throwsBusinessConflictException() {
+        UUID token = UUID.randomUUID();
+        InterviewBookingRequest req = InterviewBookingRequest.builder()
+                .id(2L)
+                .bookingToken(token)
+                .status(InterviewBookingRequestStatus.OPEN)
+                .expiresAt(fixedInstant.plusSeconds(86400 * 5))
+                .build();
+
+        InterviewBookingSlot slot = InterviewBookingSlot.builder()
+                .id(202L)
+                .bookingRequest(req)
+                .status(InterviewBookingSlotStatus.CONFIRMED)
+                .build();
+
+        when(interviewBookingRequestRepository.findByBookingTokenFetch(token)).thenReturn(Optional.of(req));
+        when(interviewBookingSlotRepository.findByIdWithDetailsForUpdate(202L)).thenReturn(Optional.of(slot));
+
+        ConfirmBookingSlotRequestDto confirmReq = ConfirmBookingSlotRequestDto.builder()
+                .slotId(202L)
+                .build();
+
+        assertThatThrownBy(() -> interviewService.confirmBookingSlot(token, confirmReq))
+                .isInstanceOf(BusinessConflictException.class);
+    }
 }
+
