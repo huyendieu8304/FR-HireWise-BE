@@ -139,6 +139,16 @@ public enum ErrorCode {
     OFFER_NOT_SIGNABLE("error.offer_not_signable"),
     PIPELINE_MISSING_TERMINAL_SUCCESS_STAGE("error.pipeline_missing_terminal_success_stage"),
 
+    // UC-45 Publish an approved Job Position to the Job Board (BR-APR-03)
+    /** [Dang tin] pressed on a Job that is not in APPROVED status. */
+    JOB_POSITION_NOT_PUBLISHABLE("error.job_position_not_publishable"),
+
+    // UC-44 Close / pause / resume a published Job Position (BR-JOB-04/05)
+    /** Pause/Close/Resume attempted from a status that does not allow it. */
+    JOB_STATUS_TRANSITION_NOT_ALLOWED("error.job_status_transition_not_allowed"),
+    /** ME-38: the Job is Paused or Closed, so its JD/salary can no longer be edited. */
+    JOB_POSITION_PAUSED_OR_CLOSED("error.job_position_paused_or_closed"),
+
     ;
 
     private final String key;
