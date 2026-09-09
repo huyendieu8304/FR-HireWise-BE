@@ -33,10 +33,19 @@ import com.hirewise.be.repository.InterviewRepository;
 import com.hirewise.be.repository.PipelineStageRepository;
 import com.hirewise.be.repository.UserRepository;
 import com.hirewise.be.security.CurrentUser;
-import lombok.AccessLevel;
-import lombok.AllArgsConstructor;
-import lombok.experimental.FieldDefaults;
+import com.hirewise.be.domain.InterviewBookingRequest;
+import com.hirewise.be.domain.InterviewBookingRequestStatus;
+import com.hirewise.be.domain.InterviewBookingSlot;
+import com.hirewise.be.domain.InterviewBookingSlotStatus;
+import com.hirewise.be.dto.request.ConfirmBookingSlotRequestDto;
+import com.hirewise.be.dto.request.SendBookingLinkRequestDto;
+import com.hirewise.be.dto.response.BookingConfirmResponseDto;
+import com.hirewise.be.dto.response.BookingPageResponseDto;
+import com.hirewise.be.dto.response.BookingRequestResponseDto;
+import com.hirewise.be.repository.InterviewBookingRequestRepository;
+import com.hirewise.be.repository.InterviewBookingSlotRepository;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -50,31 +59,58 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Service for UC-24: Schedule predetermined interview (fixed schedule).
- * <p>
- * Handles interview creation, participant assignment, moving the application
- * to the INTERVIEW pipeline stage, and enqueuing notification emails (EM-05 for
- * the candidate, EM-08 for each assigned interviewer).
+ * Service for UC-24: Schedule predetermined interview (fixed schedule)
+ * and UC-25/UC-34/UC-35: Self-service interview booking.
  */
 @Slf4j
 @Service
-@FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
-@AllArgsConstructor
 public class InterviewService {
 
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("dd/MM/yyyy");
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
 
-    InterviewRepository interviewRepository;
-    InterviewParticipantRepository interviewParticipantRepository;
-    ApplicationRepository applicationRepository;
-    ApplicationStageHistoryRepository applicationStageHistoryRepository;
-    PipelineStageRepository pipelineStageRepository;
-    UserRepository userRepository;
-    OutboxEventPublisher outboxEventPublisher;
-    AccessControlService accessControlService;
-    CalendarIntegrationService calendarIntegrationService;
-    Clock clock;
+    private final InterviewRepository interviewRepository;
+    private final InterviewParticipantRepository interviewParticipantRepository;
+    private final ApplicationRepository applicationRepository;
+    private final ApplicationStageHistoryRepository applicationStageHistoryRepository;
+    private final PipelineStageRepository pipelineStageRepository;
+    private final UserRepository userRepository;
+    private final OutboxEventPublisher outboxEventPublisher;
+    private final AccessControlService accessControlService;
+    private final CalendarIntegrationService calendarIntegrationService;
+    private final Clock clock;
+    private final InterviewBookingRequestRepository interviewBookingRequestRepository;
+    private final InterviewBookingSlotRepository interviewBookingSlotRepository;
+    private final String bookingLinkBaseUrl;
+
+    public InterviewService(
+            InterviewRepository interviewRepository,
+            InterviewParticipantRepository interviewParticipantRepository,
+            ApplicationRepository applicationRepository,
+            ApplicationStageHistoryRepository applicationStageHistoryRepository,
+            PipelineStageRepository pipelineStageRepository,
+            UserRepository userRepository,
+            OutboxEventPublisher outboxEventPublisher,
+            AccessControlService accessControlService,
+            CalendarIntegrationService calendarIntegrationService,
+            Clock clock,
+            InterviewBookingRequestRepository interviewBookingRequestRepository,
+            InterviewBookingSlotRepository interviewBookingSlotRepository,
+            @Value("${app.booking.link-base-url:http://localhost:5173/booking}") String bookingLinkBaseUrl) {
+        this.interviewRepository = interviewRepository;
+        this.interviewParticipantRepository = interviewParticipantRepository;
+        this.applicationRepository = applicationRepository;
+        this.applicationStageHistoryRepository = applicationStageHistoryRepository;
+        this.pipelineStageRepository = pipelineStageRepository;
+        this.userRepository = userRepository;
+        this.outboxEventPublisher = outboxEventPublisher;
+        this.accessControlService = accessControlService;
+        this.calendarIntegrationService = calendarIntegrationService;
+        this.clock = clock;
+        this.interviewBookingRequestRepository = interviewBookingRequestRepository;
+        this.interviewBookingSlotRepository = interviewBookingSlotRepository;
+        this.bookingLinkBaseUrl = bookingLinkBaseUrl;
+    }
 
     /**
      * UC-24 main flow: Schedules an interview for an application, assigns interviewers,
@@ -286,6 +322,16 @@ public class InterviewService {
     }
 
     /**
+     * Retrieves busy time slots for a specific interviewer between dates to avoid scheduling conflicts.
+     */
+    public List<com.hirewise.be.dto.response.InterviewerBusySlotDto> getInterviewerBusySlots(
+            Long interviewerId, LocalDate startDate, LocalDate endDate, CurrentUser currentUser) {
+        accessControlService.checkAccess(currentUser, PermissionCodes.APPLICATION_VIEW, ResourceContext.none());
+        return interviewParticipantRepository.findBusySlotsByInterviewer(
+                interviewerId, startDate, endDate, InterviewStatus.CANCELLED);
+    }
+
+    /**
      * Retrieves scheduled interviews within a date range for the calendar visual grid (UC-24).
      */
     public List<com.hirewise.be.dto.response.InterviewCalendarDto> getScheduleCalendar(
@@ -358,4 +404,433 @@ public class InterviewService {
         for (int i = 0; i < 3; i++) sb.append(chars.charAt(rnd.nextInt(chars.length())));
         return sb.toString();
     }
+
+    /**
+     * UC-25: Sends a self-service booking link to a candidate.
+     */
+    @Transactional
+    public BookingRequestResponseDto sendBookingLink(
+            UUID applicationId, SendBookingLinkRequestDto request, CurrentUser currentUser) {
+
+        Application application = applicationRepository.findById(applicationId)
+                .orElseThrow(() -> new ResourceNotFoundException(ErrorCode.APPLICATION_NOT_FOUND, applicationId));
+
+        PipelineStage fromStage = application.getCurrentStage();
+        if (fromStage.isTerminal()) {
+            throw new BusinessConflictException(ErrorCode.APPLICATION_STAGE_TERMINAL, fromStage.getName());
+        }
+
+        PipelineStage targetStage = null;
+        if (request.getTargetStageId() != null) {
+            targetStage = pipelineStageRepository.findById(request.getTargetStageId())
+                    .orElseThrow(() -> new ResourceNotFoundException(
+                            ErrorCode.PIPELINE_STAGE_NOT_FOUND, request.getTargetStageId()));
+            Long pipelineTemplateId = application.getJobPosition().getPipelineTemplate().getId();
+            if (!targetStage.getPipelineTemplate().getId().equals(pipelineTemplateId)) {
+                throw new BadRequestException(ErrorCode.INVALID_STAGE_TRANSITION);
+            }
+            if (!targetStage.isActive()) {
+                throw new BusinessConflictException(ErrorCode.PIPELINE_STAGE_INACTIVE, targetStage.getId());
+            }
+            if (targetStage.getStageType() != StageType.INTERVIEW) {
+                throw new BadRequestException(ErrorCode.INTERVIEW_STAGE_NOT_INTERVIEW_TYPE);
+            }
+        }
+
+        User interviewer = userRepository.findById(request.getInterviewerId())
+                .orElseThrow(() -> new ResourceNotFoundException(ErrorCode.INTERVIEW_INTERVIEWER_NOT_FOUND, request.getInterviewerId()));
+        if (interviewer.getStatus() != UserStatus.ACTIVE) {
+            throw new BusinessConflictException(ErrorCode.INTERVIEW_INTERVIEWER_INACTIVE, interviewer.getFullName());
+        }
+
+        LocalDate today = LocalDate.now(clock);
+        if (request.getDateRangeStart().isBefore(today)) {
+            throw new BadRequestException(ErrorCode.INTERVIEW_TIME_IN_PAST);
+        }
+        if (request.getDateRangeEnd().isBefore(request.getDateRangeStart())) {
+            throw new BadRequestException(ErrorCode.INTERVIEW_TIME_IN_PAST);
+        }
+
+        LocalDateTime currentDateTime = LocalDateTime.ofInstant(Instant.now(clock), clock.getZone());
+        for (SendBookingLinkRequestDto.SlotItemDto slot : request.getSlots()) {
+            LocalDateTime slotDateTime = LocalDateTime.of(slot.getSlotDate(), slot.getSlotTime());
+            if (slotDateTime.isBefore(currentDateTime)) {
+                throw new BadRequestException(ErrorCode.INTERVIEW_TIME_IN_PAST);
+            }
+            if (slot.getSlotDate().isBefore(request.getDateRangeStart()) || slot.getSlotDate().isAfter(request.getDateRangeEnd())) {
+                throw new BadRequestException(ErrorCode.INTERVIEW_TIME_IN_PAST);
+            }
+        }
+
+        Instant now = Instant.now(clock);
+        // Expiry 7 days from now
+        Instant expiresAt = now.plus(7, java.time.temporal.ChronoUnit.DAYS);
+        UUID bookingToken = UUID.randomUUID();
+
+        // Cancel existing OPEN booking requests for this application
+        List<InterviewBookingRequest> existingRequests = interviewBookingRequestRepository
+                .findByApplication_IdOrderByCreatedAtDesc(applicationId);
+        for (InterviewBookingRequest req : existingRequests) {
+            if (req.getStatus() == InterviewBookingRequestStatus.OPEN) {
+                req.setStatus(InterviewBookingRequestStatus.CANCELLED);
+                interviewBookingRequestRepository.save(req);
+            }
+        }
+
+        User createdByUser = userRepository.getReferenceById(currentUser.userId());
+
+        // Transition application stage if targetStage is specified and differs from current stage
+        if (targetStage != null && !targetStage.getId().equals(fromStage.getId())) {
+            application.setCurrentStage(targetStage);
+            application.setStatus(ApplicationStatus.IN_PROGRESS);
+            application.setLastStageChangedAt(now);
+            application.setUpdatedAt(now);
+            applicationRepository.save(application);
+
+            ApplicationStageHistory history = ApplicationStageHistory.builder()
+                    .application(application)
+                    .fromStage(fromStage)
+                    .toStage(targetStage)
+                    .changedBy(createdByUser)
+                    .transitionType(StageTransitionType.MANUAL)
+                    .changedAt(now)
+                    .build();
+            applicationStageHistoryRepository.save(history);
+        }
+
+        InterviewBookingRequest bookingRequest = InterviewBookingRequest.builder()
+                .application(application)
+                .interviewer(interviewer)
+                .dateRangeStart(request.getDateRangeStart())
+                .dateRangeEnd(request.getDateRangeEnd())
+                .bookingToken(bookingToken)
+                .expiresAt(expiresAt)
+                .status(InterviewBookingRequestStatus.OPEN)
+                .targetStage(targetStage)
+                .mode(request.getMode())
+                .locationOrLink(request.getLocationOrLink())
+                .createdBy(createdByUser)
+                .createdAt(now)
+                .build();
+        bookingRequest = interviewBookingRequestRepository.save(bookingRequest);
+
+        for (SendBookingLinkRequestDto.SlotItemDto s : request.getSlots()) {
+            InterviewBookingSlot slot = InterviewBookingSlot.builder()
+                    .bookingRequest(bookingRequest)
+                    .slotDate(s.getSlotDate())
+                    .slotTime(s.getSlotTime())
+                    .durationMinutes(s.getDurationMinutes() != null ? s.getDurationMinutes() : 45)
+                    .status(InterviewBookingSlotStatus.OPEN)
+                    .build();
+            interviewBookingSlotRepository.save(slot);
+        }
+
+        String fullBookingLink = String.format("%s/%s", bookingLinkBaseUrl.replaceAll("/$", ""), bookingToken);
+
+        // Enqueue email EM-06 for candidate
+        String candidateEmail = application.getCandidate().getPrimaryEmail();
+        String candidateName = application.getCandidate().getFullName();
+        String jobTitle = application.getJobPosition().getTitle();
+        String recruiterName = currentUser.fullName();
+
+        outboxEventPublisher.publish(
+                OutboxEventType.BOOKING_LINK_EMAIL,
+                OutboxPayloads.bookingLinkEmail(
+                        candidateEmail,
+                        candidateName,
+                        jobTitle,
+                        fullBookingLink,
+                        "168",
+                        recruiterName
+                )
+        );
+
+        log.info("Booking link {} sent for application {} by recruiter {}",
+                bookingToken, applicationId, currentUser.userId());
+
+        return BookingRequestResponseDto.builder()
+                .id(bookingRequest.getId())
+                .bookingToken(bookingToken)
+                .bookingLink(fullBookingLink)
+                .dateRangeStart(bookingRequest.getDateRangeStart())
+                .dateRangeEnd(bookingRequest.getDateRangeEnd())
+                .expiresAt(expiresAt)
+                .status(InterviewBookingRequestStatus.OPEN)
+                .interviewerId(interviewer.getId())
+                .interviewerName(interviewer.getFullName())
+                .totalSlots(request.getSlots().size())
+                .build();
+    }
+
+    /**
+     * UC-34: Candidate views the public booking page for a token.
+     */
+    @Transactional(readOnly = true)
+    public BookingPageResponseDto getBookingPage(UUID token) {
+        InterviewBookingRequest bookingRequest = interviewBookingRequestRepository
+                .findByBookingTokenFetch(token)
+                .orElseThrow(() -> new ResourceNotFoundException(ErrorCode.BOOKING_TOKEN_INVALID, token));
+
+        Instant now = Instant.now(clock);
+        if (bookingRequest.getStatus() != InterviewBookingRequestStatus.OPEN || bookingRequest.getExpiresAt().isBefore(now)) {
+            throw new BusinessConflictException(ErrorCode.BOOKING_TOKEN_EXPIRED);
+        }
+
+        List<InterviewBookingSlot> slots = interviewBookingSlotRepository
+                .findByBookingRequestIdOrderBySlotDateAscSlotTimeAsc(bookingRequest.getId());
+
+        User interviewer = bookingRequest.getInterviewer();
+
+        List<BookingPageResponseDto.BookingSlotDto> slotDtos = slots.stream()
+                .map(s -> {
+                    boolean isOpenInDb = s.getStatus() == InterviewBookingSlotStatus.OPEN
+                            || (s.getStatus() == InterviewBookingSlotStatus.HELD && s.getHeldUntil() != null && s.getHeldUntil().isBefore(now));
+
+                    boolean hasConflict = false;
+                    if (interviewer != null && interviewer.getId() != null) {
+                        hasConflict = interviewParticipantRepository
+                                .existsByInterviewer_IdAndInterview_InterviewDateAndInterview_InterviewTimeAndInterview_StatusNot(
+                                        interviewer.getId(), s.getSlotDate(), s.getSlotTime(), InterviewStatus.CANCELLED);
+                    }
+
+                    boolean available = isOpenInDb && !hasConflict;
+                    InterviewBookingSlotStatus effectiveStatus;
+                    String reason = null;
+
+                    if (!isOpenInDb) {
+                        effectiveStatus = s.getStatus() != null ? s.getStatus() : InterviewBookingSlotStatus.BOOKED;
+                        reason = "Khung giờ đã được đặt";
+                    } else if (hasConflict) {
+                        effectiveStatus = InterviewBookingSlotStatus.BUSY;
+                        reason = "Người phỏng vấn đã có lịch bận";
+                    } else {
+                        effectiveStatus = InterviewBookingSlotStatus.OPEN;
+                    }
+
+                    return BookingPageResponseDto.BookingSlotDto.builder()
+                            .id(s.getId())
+                            .slotDate(s.getSlotDate())
+                            .slotTime(s.getSlotTime())
+                            .durationMinutes(s.getDurationMinutes())
+                            .status(effectiveStatus)
+                            .available(available)
+                            .unavailableReason(reason)
+                            .build();
+                })
+                .toList();
+
+        return BookingPageResponseDto.builder()
+                .bookingToken(bookingRequest.getBookingToken())
+                .candidateName(bookingRequest.getApplication().getCandidate().getFullName())
+                .jobTitle(bookingRequest.getApplication().getJobPosition().getTitle())
+                .interviewerName(bookingRequest.getInterviewer().getFullName())
+                .mode(bookingRequest.getMode())
+                .locationOrLink(bookingRequest.getLocationOrLink())
+                .dateRangeStart(bookingRequest.getDateRangeStart())
+                .dateRangeEnd(bookingRequest.getDateRangeEnd())
+                .expiresAt(bookingRequest.getExpiresAt())
+                .status(bookingRequest.getStatus())
+                .slots(slotDtos)
+                .build();
+    }
+
+    /**
+     * UC-35: Candidate confirms a selected booking slot.
+     */
+    @Transactional
+    public BookingConfirmResponseDto confirmBookingSlot(UUID token, ConfirmBookingSlotRequestDto request) {
+        InterviewBookingRequest bookingRequest = interviewBookingRequestRepository
+                .findByBookingTokenFetch(token)
+                .orElseThrow(() -> new ResourceNotFoundException(ErrorCode.BOOKING_TOKEN_INVALID, token));
+
+        Instant now = Instant.now(clock);
+        if (bookingRequest.getStatus() != InterviewBookingRequestStatus.OPEN || bookingRequest.getExpiresAt().isBefore(now)) {
+            throw new BusinessConflictException(ErrorCode.BOOKING_TOKEN_EXPIRED);
+        }
+
+        // Pessimistic write lock on slot
+        InterviewBookingSlot slot = interviewBookingSlotRepository
+                .findByIdWithDetailsForUpdate(request.getSlotId())
+                .orElseThrow(() -> new ResourceNotFoundException(ErrorCode.BOOKING_SLOT_NOT_FOUND, request.getSlotId()));
+
+        if (!slot.getBookingRequest().getId().equals(bookingRequest.getId())) {
+            throw new BadRequestException(ErrorCode.BOOKING_SLOT_NOT_FOUND);
+        }
+
+        if (slot.getStatus() == InterviewBookingSlotStatus.CONFIRMED) {
+            throw new BusinessConflictException(ErrorCode.BOOKING_SLOT_UNAVAILABLE);
+        }
+        if (slot.getStatus() == InterviewBookingSlotStatus.HELD && slot.getHeldUntil() != null && slot.getHeldUntil().isAfter(now)) {
+            throw new BusinessConflictException(ErrorCode.BOOKING_SLOT_UNAVAILABLE);
+        }
+
+        User interviewer = bookingRequest.getInterviewer();
+        boolean hasConflict = interviewParticipantRepository
+                .existsByInterviewer_IdAndInterview_InterviewDateAndInterview_InterviewTimeAndInterview_StatusNot(
+                        interviewer.getId(), slot.getSlotDate(), slot.getSlotTime(), InterviewStatus.CANCELLED);
+        if (hasConflict) {
+            throw new BusinessConflictException(ErrorCode.INTERVIEWER_TIME_CONFLICT, interviewer.getFullName());
+        }
+
+        // Confirm slot & mark request completed
+        slot.setStatus(InterviewBookingSlotStatus.CONFIRMED);
+        slot.setSelectedAt(now);
+        interviewBookingSlotRepository.save(slot);
+
+        bookingRequest.setStatus(InterviewBookingRequestStatus.COMPLETED);
+        interviewBookingRequestRepository.save(bookingRequest);
+
+        Application application = bookingRequest.getApplication();
+        PipelineStage targetStage = bookingRequest.getTargetStage();
+        PipelineStage fromStage = application.getCurrentStage();
+
+        if (targetStage != null && !targetStage.getId().equals(fromStage.getId())) {
+            application.setCurrentStage(targetStage);
+            application.setStatus(ApplicationStatus.IN_PROGRESS);
+            application.setLastStageChangedAt(now);
+            application.setUpdatedAt(now);
+            applicationRepository.save(application);
+
+            ApplicationStageHistory history = ApplicationStageHistory.builder()
+                    .application(application)
+                    .fromStage(fromStage)
+                    .toStage(targetStage)
+                    .changedBy(bookingRequest.getCreatedBy())
+                    .transitionType(StageTransitionType.SYSTEM)
+                    .changedAt(now)
+                    .build();
+            applicationStageHistoryRepository.save(history);
+        }
+
+        // Handle Google Meet link if ONLINE
+        String effectiveLocationOrLink = bookingRequest.getLocationOrLink();
+        if (bookingRequest.getMode() == InterviewMode.ONLINE) {
+            if (effectiveLocationOrLink == null || effectiveLocationOrLink.isBlank()) {
+                String summary = String.format("Phỏng vấn %s - %s",
+                        application.getCandidate().getFullName(),
+                        application.getJobPosition().getTitle());
+                String description = String.format("Phỏng vấn tuyển dụng vị trí %s cho ứng viên %s",
+                        application.getJobPosition().getTitle(),
+                        application.getCandidate().getFullName());
+                LocalDateTime start = LocalDateTime.of(slot.getSlotDate(), slot.getSlotTime());
+                LocalDateTime end = start.plusMinutes(slot.getDurationMinutes());
+
+                List<String> attendeeEmails = new ArrayList<>();
+                if (interviewer.getEmail() != null && !interviewer.getEmail().isBlank()) {
+                    attendeeEmails.add(interviewer.getEmail());
+                }
+                if (application.getCandidate().getPrimaryEmail() != null && !application.getCandidate().getPrimaryEmail().isBlank()) {
+                    attendeeEmails.add(application.getCandidate().getPrimaryEmail());
+                }
+
+                effectiveLocationOrLink = calendarIntegrationService.createGoogleMeetMeeting(
+                                summary, description, start, end, attendeeEmails)
+                        .orElseGet(InterviewService::generateGoogleMeetLink);
+            }
+        }
+
+        // Cancel previous scheduled interviews
+        List<Interview> existingInterviews = interviewRepository.findAllByApplication_IdAndStatus(
+                application.getId(), InterviewStatus.SCHEDULED);
+        for (Interview old : existingInterviews) {
+            old.setStatus(InterviewStatus.CANCELLED);
+            old.setUpdatedAt(now);
+            interviewRepository.save(old);
+        }
+
+        // Persist interview
+        Interview interview = Interview.builder()
+                .application(application)
+                .scheduledBy(bookingRequest.getCreatedBy())
+                .interviewDate(slot.getSlotDate())
+                .interviewTime(slot.getSlotTime())
+                .mode(bookingRequest.getMode())
+                .locationOrLink(effectiveLocationOrLink)
+                .status(InterviewStatus.SCHEDULED)
+                .notes(request.getNotes())
+                .createdAt(now)
+                .updatedAt(now)
+                .build();
+        interview = interviewRepository.save(interview);
+
+        InterviewParticipant participant = InterviewParticipant.builder()
+                .interview(interview)
+                .interviewer(interviewer)
+                .createdAt(now)
+                .build();
+        interviewParticipantRepository.save(participant);
+
+        // Outbox event EM-07 for candidate
+        String candidateEmail = application.getCandidate().getPrimaryEmail();
+        String candidateName = application.getCandidate().getFullName();
+        String jobTitle = application.getJobPosition().getTitle();
+        String formattedDate = slot.getSlotDate().format(DATE_FORMATTER);
+        String formattedTime = slot.getSlotTime().format(TIME_FORMATTER);
+
+        outboxEventPublisher.publish(
+                OutboxEventType.BOOKING_CONFIRMED_EMAIL,
+                OutboxPayloads.bookingConfirmedEmail(
+                        candidateEmail,
+                        candidateName,
+                        jobTitle,
+                        formattedDate,
+                        formattedTime,
+                        effectiveLocationOrLink,
+                        bookingRequest.getMode() != null ? bookingRequest.getMode().name() : "ONLINE"
+                )
+        );
+
+        // Outbox event EM-08 for interviewer
+        outboxEventPublisher.publish(
+                OutboxEventType.INTERVIEWER_ASSIGNED_EMAIL,
+                OutboxPayloads.interviewerAssignedEmail(
+                        interviewer.getEmail(),
+                        interviewer.getFullName(),
+                        candidateName,
+                        jobTitle,
+                        formattedDate,
+                        formattedTime,
+                        effectiveLocationOrLink
+                )
+        );
+
+        log.info("Booking slot {} confirmed for token {} -> created interview {}",
+                slot.getId(), token, interview.getId());
+
+        return BookingConfirmResponseDto.builder()
+                .interviewId(interview.getId())
+                .interviewDate(slot.getSlotDate())
+                .interviewTime(slot.getSlotTime())
+                .durationMinutes(slot.getDurationMinutes())
+                .mode(bookingRequest.getMode())
+                .locationOrLink(effectiveLocationOrLink)
+                .interviewerName(interviewer.getFullName())
+                .jobTitle(jobTitle)
+                .candidateName(candidateName)
+                .message("Interview confirmed successfully")
+                .build();
+    }
+
+    /**
+     * Retrieves all booking requests created for an application.
+     */
+    public List<BookingRequestResponseDto> getBookingRequestsForApplication(UUID applicationId, CurrentUser currentUser) {
+        accessControlService.checkAccess(currentUser, PermissionCodes.APPLICATION_VIEW, ResourceContext.none());
+        return interviewBookingRequestRepository.findByApplication_IdOrderByCreatedAtDesc(applicationId)
+                .stream()
+                .map(r -> BookingRequestResponseDto.builder()
+                        .id(r.getId())
+                        .bookingToken(r.getBookingToken())
+                        .bookingLink(String.format("%s/%s", bookingLinkBaseUrl.replaceAll("/$", ""), r.getBookingToken()))
+                        .dateRangeStart(r.getDateRangeStart())
+                        .dateRangeEnd(r.getDateRangeEnd())
+                        .expiresAt(r.getExpiresAt())
+                        .status(r.getStatus())
+                        .interviewerId(r.getInterviewer().getId())
+                        .interviewerName(r.getInterviewer().getFullName())
+                        .totalSlots(r.getSlots() != null ? r.getSlots().size() : 0)
+                        .build())
+                .toList();
+    }
 }
+
