@@ -561,6 +561,79 @@ public class InterviewService {
                 .totalSlots(request.getSlots().size())
                 .build();
     }
+
+    /**
+     * UC-34: Candidate views the public booking page for a token.
+     */
+    @Transactional(readOnly = true)
+    public BookingPageResponseDto getBookingPage(UUID token) {
+        InterviewBookingRequest bookingRequest = interviewBookingRequestRepository
+                .findByBookingTokenFetch(token)
+                .orElseThrow(() -> new ResourceNotFoundException(ErrorCode.BOOKING_TOKEN_INVALID, token));
+
+        Instant now = Instant.now(clock);
+        if (bookingRequest.getStatus() != InterviewBookingRequestStatus.OPEN || bookingRequest.getExpiresAt().isBefore(now)) {
+            throw new BusinessConflictException(ErrorCode.BOOKING_TOKEN_EXPIRED);
+        }
+
+        List<InterviewBookingSlot> slots = interviewBookingSlotRepository
+                .findByBookingRequestIdOrderBySlotDateAscSlotTimeAsc(bookingRequest.getId());
+
+        User interviewer = bookingRequest.getInterviewer();
+
+        List<BookingPageResponseDto.BookingSlotDto> slotDtos = slots.stream()
+                .map(s -> {
+                    boolean isOpenInDb = s.getStatus() == InterviewBookingSlotStatus.OPEN
+                            || (s.getStatus() == InterviewBookingSlotStatus.HELD && s.getHeldUntil() != null && s.getHeldUntil().isBefore(now));
+
+                    boolean hasConflict = false;
+                    if (interviewer != null && interviewer.getId() != null) {
+                        hasConflict = interviewParticipantRepository
+                                .existsByInterviewer_IdAndInterview_InterviewDateAndInterview_InterviewTimeAndInterview_StatusNot(
+                                        interviewer.getId(), s.getSlotDate(), s.getSlotTime(), InterviewStatus.CANCELLED);
+                    }
+
+                    boolean available = isOpenInDb && !hasConflict;
+                    InterviewBookingSlotStatus effectiveStatus;
+                    String reason = null;
+
+                    if (!isOpenInDb) {
+                        effectiveStatus = s.getStatus() != null ? s.getStatus() : InterviewBookingSlotStatus.BOOKED;
+                        reason = "Khung giờ đã được đặt";
+                    } else if (hasConflict) {
+                        effectiveStatus = InterviewBookingSlotStatus.BUSY;
+                        reason = "Người phỏng vấn đã có lịch bận";
+                    } else {
+                        effectiveStatus = InterviewBookingSlotStatus.OPEN;
+                    }
+
+                    return BookingPageResponseDto.BookingSlotDto.builder()
+                            .id(s.getId())
+                            .slotDate(s.getSlotDate())
+                            .slotTime(s.getSlotTime())
+                            .durationMinutes(s.getDurationMinutes())
+                            .status(effectiveStatus)
+                            .available(available)
+                            .unavailableReason(reason)
+                            .build();
+                })
+                .toList();
+
+        return BookingPageResponseDto.builder()
+                .bookingToken(bookingRequest.getBookingToken())
+                .candidateName(bookingRequest.getApplication().getCandidate().getFullName())
+                .jobTitle(bookingRequest.getApplication().getJobPosition().getTitle())
+                .interviewerName(bookingRequest.getInterviewer().getFullName())
+                .mode(bookingRequest.getMode())
+                .locationOrLink(bookingRequest.getLocationOrLink())
+                .dateRangeStart(bookingRequest.getDateRangeStart())
+                .dateRangeEnd(bookingRequest.getDateRangeEnd())
+                .expiresAt(bookingRequest.getExpiresAt())
+                .status(bookingRequest.getStatus())
+                .slots(slotDtos)
+                .build();
+    }
+
     /**
      * Retrieves all booking requests created for an application.
      */

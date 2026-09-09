@@ -696,4 +696,130 @@ class InterviewServiceTest {
         assertThat(result.get(0).getTime()).isEqualTo(LocalTime.of(9, 0));
     }
 
+    // =========================================================================
+    // UC-34: Candidate views booking page
+    // =========================================================================
+
+    @Test
+    @DisplayName("UC-34: Candidate loads booking page successfully")
+    void getBookingPage_success() {
+        UUID token = UUID.randomUUID();
+        Candidate candidate = Candidate.builder().fullName("Tran Thi C").build();
+        JobPosition job = JobPosition.builder().title("QA Engineer").build();
+        Application app = Application.builder().candidate(candidate).jobPosition(job).build();
+        User interviewer = User.builder().fullName("Interviewer C").build();
+
+        InterviewBookingRequest req = InterviewBookingRequest.builder()
+                .id(1L)
+                .bookingToken(token)
+                .application(app)
+                .interviewer(interviewer)
+                .status(InterviewBookingRequestStatus.OPEN)
+                .expiresAt(fixedInstant.plusSeconds(86400 * 5))
+                .mode(InterviewMode.ONLINE)
+                .build();
+
+        InterviewBookingSlot slot1 = InterviewBookingSlot.builder()
+                .id(101L)
+                .slotDate(LocalDate.of(2026, 9, 10))
+                .slotTime(LocalTime.of(9, 0))
+                .durationMinutes(45)
+                .status(InterviewBookingSlotStatus.OPEN)
+                .build();
+
+        when(interviewBookingRequestRepository.findByBookingTokenFetch(token)).thenReturn(Optional.of(req));
+        when(interviewBookingSlotRepository.findByBookingRequestIdOrderBySlotDateAscSlotTimeAsc(1L))
+                .thenReturn(List.of(slot1));
+
+        BookingPageResponseDto page = interviewService.getBookingPage(token);
+
+        assertThat(page.getCandidateName()).isEqualTo("Tran Thi C");
+        assertThat(page.getJobTitle()).isEqualTo("QA Engineer");
+        assertThat(page.getInterviewerName()).isEqualTo("Interviewer C");
+        assertThat(page.getSlots()).hasSize(1);
+        assertThat(page.getSlots().get(0).getId()).isEqualTo(101L);
+        assertThat(page.getSlots().get(0).isAvailable()).isTrue();
+    }
+
+    @Test
+    @DisplayName("UC-34: Candidate opens booking page and slots that are conflicting are marked as BUSY and unavailable")
+    void getBookingPage_marksConflictingSlotsAsBusy_whenInterviewerBooked() {
+        UUID token = UUID.randomUUID();
+        Candidate candidate = Candidate.builder().fullName("Tran Thi C").build();
+        JobPosition job = JobPosition.builder().title("QA Engineer").build();
+        Application app = Application.builder().candidate(candidate).jobPosition(job).build();
+        User interviewer = User.builder().id(20L).fullName("Interviewer C").build();
+
+        InterviewBookingRequest req = InterviewBookingRequest.builder()
+                .id(1L)
+                .bookingToken(token)
+                .application(app)
+                .interviewer(interviewer)
+                .status(InterviewBookingRequestStatus.OPEN)
+                .expiresAt(fixedInstant.plusSeconds(86400 * 5))
+                .mode(InterviewMode.ONLINE)
+                .build();
+
+        InterviewBookingSlot slot1 = InterviewBookingSlot.builder()
+                .id(101L)
+                .slotDate(LocalDate.of(2026, 9, 10))
+                .slotTime(LocalTime.of(9, 0))
+                .durationMinutes(45)
+                .status(InterviewBookingSlotStatus.OPEN)
+                .build();
+
+        InterviewBookingSlot slot2 = InterviewBookingSlot.builder()
+                .id(102L)
+                .slotDate(LocalDate.of(2026, 9, 10))
+                .slotTime(LocalTime.of(10, 0))
+                .durationMinutes(45)
+                .status(InterviewBookingSlotStatus.OPEN)
+                .build();
+
+        when(interviewBookingRequestRepository.findByBookingTokenFetch(token)).thenReturn(Optional.of(req));
+        when(interviewBookingSlotRepository.findByBookingRequestIdOrderBySlotDateAscSlotTimeAsc(1L))
+                .thenReturn(List.of(slot1, slot2));
+
+        // slot1 is conflicting (e.g. interviewer booked another meeting)
+        when(interviewParticipantRepository.existsByInterviewer_IdAndInterview_InterviewDateAndInterview_InterviewTimeAndInterview_StatusNot(
+                eq(20L), eq(LocalDate.of(2026, 9, 10)), eq(LocalTime.of(9, 0)), eq(InterviewStatus.CANCELLED)
+        )).thenReturn(true);
+
+        // slot2 is free
+        when(interviewParticipantRepository.existsByInterviewer_IdAndInterview_InterviewDateAndInterview_InterviewTimeAndInterview_StatusNot(
+                eq(20L), eq(LocalDate.of(2026, 9, 10)), eq(LocalTime.of(10, 0)), eq(InterviewStatus.CANCELLED)
+        )).thenReturn(false);
+
+        BookingPageResponseDto page = interviewService.getBookingPage(token);
+
+        // Both slots returned, slot1 is BUSY (unavailable), slot2 is OPEN (available)
+        assertThat(page.getSlots()).hasSize(2);
+        BookingPageResponseDto.BookingSlotDto s1 = page.getSlots().stream().filter(s -> s.getId().equals(101L)).findFirst().orElseThrow();
+        BookingPageResponseDto.BookingSlotDto s2 = page.getSlots().stream().filter(s -> s.getId().equals(102L)).findFirst().orElseThrow();
+
+        assertThat(s1.getStatus()).isEqualTo(InterviewBookingSlotStatus.BUSY);
+        assertThat(s1.isAvailable()).isFalse();
+        assertThat(s1.getUnavailableReason()).contains("Người phỏng vấn đã có lịch bận");
+
+        assertThat(s2.getStatus()).isEqualTo(InterviewBookingSlotStatus.OPEN);
+        assertThat(s2.isAvailable()).isTrue();
+    }
+
+    @Test
+    @DisplayName("UC-34: Fails when booking token has expired")
+    void getBookingPage_expired_throwsBusinessConflictException() {
+        UUID token = UUID.randomUUID();
+        InterviewBookingRequest req = InterviewBookingRequest.builder()
+                .id(1L)
+                .bookingToken(token)
+                .status(InterviewBookingRequestStatus.OPEN)
+                .expiresAt(fixedInstant.minusSeconds(3600)) // expired 1 hour ago
+                .build();
+
+        when(interviewBookingRequestRepository.findByBookingTokenFetch(token)).thenReturn(Optional.of(req));
+
+        assertThatThrownBy(() -> interviewService.getBookingPage(token))
+                .isInstanceOf(BusinessConflictException.class);
+    }
+
 }
