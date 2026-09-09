@@ -2,12 +2,14 @@ package com.hirewise.be.service;
 
 import com.hirewise.be.domain.Offer;
 import com.hirewise.be.domain.SignatureMethod;
+import com.openhtmltopdf.outputdevice.helper.BaseRendererBuilder.FontStyle;
 import com.openhtmltopdf.pdfboxout.PdfRendererBuilder;
 import com.openhtmltopdf.util.XRLog;
 import org.springframework.stereotype.Component;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.time.Instant;
 import java.time.ZoneId;
@@ -39,6 +41,11 @@ public class OfferPdfRenderer {
 
     private static final DateTimeFormatter VI_DATE_TIME_FORMATTER =
             DateTimeFormatter.ofPattern("HH:mm dd/MM/yyyy").withZone(ZoneId.of("Asia/Ho_Chi_Minh"));
+
+    /** Bundled font covering Vietnamese; see {@link #registerFonts}. */
+    private static final String FONT_FAMILY = "DejaVu Sans";
+
+    private static final String FONT_RESOURCE_DIR = "/fonts/";
 
     /** Matches a named entity reference, e.g. {@code &middot;} - not a numeric one. */
     private static final Pattern NAMED_ENTITY = Pattern.compile("&([a-zA-Z][a-zA-Z0-9]{0,31});");
@@ -81,6 +88,7 @@ public class OfferPdfRenderer {
         try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             PdfRendererBuilder builder = new PdfRendererBuilder();
             builder.useFastMode();
+            registerFonts(builder);
             // No base URI is given on purpose: the document must not be able to
             // pull in anything off the filesystem or the network while rendering.
             builder.withHtmlContent(html, null);
@@ -92,11 +100,46 @@ public class OfferPdfRenderer {
         }
     }
 
+    /**
+     * Embeds the bundled DejaVu Sans faces.
+     * <p>
+     * Without this the renderer falls back to PDFBox's built-in Helvetica, a
+     * base-14 font limited to WinAnsi - which has no Vietnamese diacritics, so
+     * every "ế", "ữ" or "ạ" came out broken. That hit real data hardest: an
+     * offer letter is addressed to a candidate whose name almost always
+     * carries diacritics.
+     * <p>
+     * The faces are bundled rather than taken from the host so a Linux
+     * container renders identically to a developer's Windows machine.
+     * Subsetting is on, so only the glyphs actually used are written into each
+     * PDF and the output stays small despite the fonts being ~1.7 MB on disk.
+     */
+    private static void registerFonts(PdfRendererBuilder builder) {
+        builder.useFont(() -> fontStream("DejaVuSans.ttf"), FONT_FAMILY, 400, FontStyle.NORMAL, true);
+        builder.useFont(() -> fontStream("DejaVuSans-Bold.ttf"), FONT_FAMILY, 700, FontStyle.NORMAL, true);
+        // The typed signature is rendered in italic; with no italic face
+        // registered the renderer would drop back to Helvetica for exactly the
+        // one line that is a person's name.
+        builder.useFont(() -> fontStream("DejaVuSans-Oblique.ttf"), FONT_FAMILY, 400, FontStyle.ITALIC, true);
+    }
+
+    private static InputStream fontStream(String fileName) {
+        InputStream stream = OfferPdfRenderer.class.getResourceAsStream(FONT_RESOURCE_DIR + fileName);
+        if (stream == null) {
+            // Fail loudly at render time rather than silently producing a
+            // contract with unreadable Vietnamese in it.
+            throw new IllegalStateException("Missing bundled PDF font: " + FONT_RESOURCE_DIR + fileName);
+        }
+        return stream;
+    }
+
     private String buildHtml(Offer offer, SignatureMethod method, String signerName,
                               String signatureImageDataUri, Instant signedAt) {
         String signatureMark = method == SignatureMethod.DRAW && signatureImageDataUri != null
                 ? "<img src=\"" + signatureImageDataUri + "\" style=\"max-height:80px;\" alt=\"\" />"
-                : "<span style=\"font-family:serif;font-style:italic;font-size:22px;\">"
+                // Must name the embedded family: "serif" would resolve to a
+                // base-14 font and mangle the diacritics in the signer's name.
+                : "<span style=\"font-family:'" + FONT_FAMILY + "';font-style:italic;font-size:22px;\">"
                         + escapeHtml(signerName) + "</span>";
 
         // openhtmltopdf needs well-formed XHTML; renderedBody is produced by
@@ -106,7 +149,7 @@ public class OfferPdfRenderer {
         return """
                 <html><head><meta charset="UTF-8" /><style>
                   @page { size: A4; margin: 20mm; }
-                  body { font-family: sans-serif; font-size: 12px; line-height: 1.5; }
+                  body { font-family: "DejaVu Sans", sans-serif; font-size: 12px; line-height: 1.5; }
                   .signature-block { margin-top: 40px; border-top: 1px solid #999; padding-top: 16px; }
                   .signature-meta { font-size: 10px; color: #555; margin-top: 8px; }
                 </style></head><body>

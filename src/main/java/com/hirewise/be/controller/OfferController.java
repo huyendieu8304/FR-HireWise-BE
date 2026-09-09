@@ -68,9 +68,15 @@ public class OfferController {
     /**
      * UC-36 main flow: creates a Draft Offer from the chosen template
      * (BR-OFFER-01/02). Nothing reaches the candidate until UC-37.
+     * <p>
+     * UC-23: when {@code request.targetStageId} names an Offer stage, the
+     * Application is moved onto it in the same transaction - that is how the
+     * Kanban board can require the Offer form to be completed before any stage
+     * change is recorded (cancelling the dialog leaves the card where it was).
      *
      * @param applicationId id of the Application being offered
-     * @param request       template, salary, probation rate, start date, answer deadline
+     * @param request       template, salary, probation rate, start date, answer
+     *                      deadline, plus the optional Offer stage to move onto
      * @param currentUser   authenticated caller - must own the parent Job (as its Recruiter)
      * @return the Draft offer just created
      */
