@@ -23,6 +23,13 @@ public record CurrentUser(
         String fullName,
         Set<String> roles
 ) {
+    public CurrentUser(Long userId, String email, String fullName, Set<String> roles) {
+        this.userId = userId;
+        this.email = email;
+        this.fullName = fullName;
+        this.roles = roles;
+    }
+
     public boolean hasRole(String role) {
         return roles != null && roles.contains(role.toUpperCase());
     }

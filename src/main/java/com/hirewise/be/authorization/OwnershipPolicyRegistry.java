@@ -25,17 +25,24 @@ public class OwnershipPolicyRegistry {
      * - Key: (Permission, Role)
      * - Value: {@code true} = ownership is required, {@code false} = ownership is not required.
      */
-    private static final Map<Key, Boolean> POLICY = Map.of(
-            new Key(PermissionCodes.JOB_EDIT, "RECRUITER"), true,
-            new Key(PermissionCodes.JOB_APPROVE, "HIRING_MANAGER"), false,
-            new Key(PermissionCodes.APPLICATION_MOVE_STAGE, "RECRUITER"), true,
-            new Key(PermissionCodes.APPLICATION_REJECT, "RECRUITER"), true,
-            new Key(PermissionCodes.SCORECARD_SUBMIT, "INTERVIEWER"), true,
-            new Key(PermissionCodes.SCORECARD_SUBMIT, "HIRING_MANAGER"), true,
+    private static final Map<Key, Boolean> POLICY = Map.ofEntries(
+            Map.entry(new Key(PermissionCodes.JOB_EDIT, "RECRUITER"), true),
+            Map.entry(new Key(PermissionCodes.JOB_APPROVE, "HIRING_MANAGER"), false),
+            Map.entry(new Key(PermissionCodes.APPLICATION_MOVE_STAGE, "RECRUITER"), true),
+            Map.entry(new Key(PermissionCodes.APPLICATION_REJECT, "RECRUITER"), true),
+            Map.entry(new Key(PermissionCodes.SCORECARD_SUBMIT, "INTERVIEWER"), true),
+            Map.entry(new Key(PermissionCodes.SCORECARD_SUBMIT, "HIRING_MANAGER"), true),
             // UC-36/UC-37: only the Recruiter who owns the parent Job may make
             // or send an Offer on it - same rule as APPLICATION_REJECT above.
-            new Key(PermissionCodes.OFFER_CREATE, "RECRUITER"), true,
-            new Key(PermissionCodes.OFFER_SEND, "RECRUITER"), true
+            Map.entry(new Key(PermissionCodes.OFFER_CREATE, "RECRUITER"), true),
+            Map.entry(new Key(PermissionCodes.OFFER_SEND, "RECRUITER"), true),
+            // UC-45/UC-31: a Recruiter may only publish or share the Jobs they
+            // own. HR_ADMIN is deliberately absent from both rows below - an
+            // undeclared (permission, role) pair defaults to "no ownership
+            // required", which is exactly the SRS rule for HR Admin on UC-44.
+            Map.entry(new Key(PermissionCodes.JOB_PUBLISH, "RECRUITER"), true),
+            // UC-44: pause/close/resume - same ownership rule as JOB_EDIT.
+            Map.entry(new Key(PermissionCodes.JOB_CLOSE_PAUSE, "RECRUITER"), true)
     );
 
     /**

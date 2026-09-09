@@ -134,12 +134,48 @@ public class ApplicationController {
     }
 
     /**
+     * UC-25: generates and sends a self-service booking link to the candidate.
+     */
+    @PostMapping("/{applicationId}/booking-links")
+    @RequiresOwnership(resourceType = "APPLICATION", idParam = "applicationId",
+            permission = PermissionCodes.INTERVIEW_SCHEDULE)
+    public ResponseEntity<com.hirewise.be.dto.response.BookingRequestResponseDto> sendBookingLink(
+            @PathVariable UUID applicationId,
+            @Valid @RequestBody com.hirewise.be.dto.request.SendBookingLinkRequestDto request,
+            @CurrentUserPrincipal CurrentUser currentUser) {
+        return ResponseEntity.status(org.springframework.http.HttpStatus.CREATED)
+                .body(interviewService.sendBookingLink(applicationId, request, currentUser));
+    }
+
+    /**
+     * UC-25: returns booking requests for an application.
+     */
+    @GetMapping("/{applicationId}/booking-links")
+    public ResponseEntity<java.util.List<com.hirewise.be.dto.response.BookingRequestResponseDto>> getBookingRequests(
+            @PathVariable UUID applicationId,
+            @CurrentUserPrincipal CurrentUser currentUser) {
+        return ResponseEntity.ok(interviewService.getBookingRequestsForApplication(applicationId, currentUser));
+    }
+
+    /**
      * UC-24: returns active users who can be assigned as interviewers.
      */
     @GetMapping("/interviewers")
     public ResponseEntity<java.util.List<com.hirewise.be.dto.response.InterviewerOptionDto>> getInterviewers(
             @CurrentUserPrincipal CurrentUser currentUser) {
         return ResponseEntity.ok(interviewService.getAvailableInterviewers(currentUser));
+    }
+
+    /**
+     * UC-25: returns busy date and time slots for an interviewer within a date range.
+     */
+    @GetMapping("/interviewers/{interviewerId}/busy-slots")
+    public ResponseEntity<java.util.List<com.hirewise.be.dto.response.InterviewerBusySlotDto>> getInterviewerBusySlots(
+            @PathVariable Long interviewerId,
+            @RequestParam @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate startDate,
+            @RequestParam @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate endDate,
+            @CurrentUserPrincipal CurrentUser currentUser) {
+        return ResponseEntity.ok(interviewService.getInterviewerBusySlots(interviewerId, startDate, endDate, currentUser));
     }
 
     /**

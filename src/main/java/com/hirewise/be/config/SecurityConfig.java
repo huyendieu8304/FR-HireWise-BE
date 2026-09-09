@@ -163,11 +163,18 @@ public class SecurityConfig {
                     // one-time code ARE the authentication, enforced in OfferAccessService.
                     // Same GET-only gap as the apply endpoint above: these are POSTs.
                     .requestMatchers(HttpMethod.POST, "/api/public/offers/**").permitAll()
+                    // UC-35: candidate confirms a self-service booking slot.
+                    .requestMatchers(HttpMethod.POST, "/api/public/booking/**").permitAll()
                     .requestMatchers("/api/auth/**").permitAll()
                     // hit by the Google/Dropbox OAuth redirect itself
                     .requestMatchers(HttpMethod.GET, "/api/integrations/cloud-storage/*/callback").permitAll()
                     // hit by the Google Calendar / Outlook OAuth redirect (UC-18)
                     .requestMatchers(HttpMethod.GET, "/api/integrations/calendar/*/callback").permitAll()
+                    // UC-31/UC-32: the share link itself. Fetched by anonymous humans AND
+                    // by the Facebook/LinkedIn crawlers reading its Open Graph tags, so it
+                    // can never require a token. Deliberately outside /api/** - it returns
+                    // HTML for a browser, not JSON for the frontend.
+                    .requestMatchers(HttpMethod.GET, "/j/**").permitAll()
 
                     // Every other business endpoint only needs a valid access token at the URL
                     // level. Concrete permission/scope/ownership decisions (RBAC layers 2-4) are

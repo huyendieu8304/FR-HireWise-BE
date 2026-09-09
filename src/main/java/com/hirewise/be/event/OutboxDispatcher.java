@@ -164,6 +164,53 @@ public class OutboxDispatcher {
                         requireField(payload, "signedAt", event.getEventType()),
                         payload.path("startDate").asText(null),
                         payload.path("signedFileLink").asText(null));
+                case BOOKING_LINK_EMAIL -> {
+                    String toEmail = requireField(payload, "email", event.getEventType());
+                    java.util.Map<String, String> vars = new java.util.HashMap<>();
+                    vars.put("Candidate_Name", payload.path("candidateName").asText(""));
+                    vars.put("Job_Title", payload.path("jobTitle").asText(""));
+                    vars.put("Expiry_Hours", payload.path("expiryHours").asText("168"));
+                    vars.put("Booking_Link", payload.path("bookingLink").asText(""));
+                    vars.put("Recruiter_Name", payload.path("recruiterName").asText("Recruiter"));
+                    vars.put("Company", "HireWise");
+                    emailService.sendTemplateEmail(toEmail, "EM-06", vars);
+                }
+                case BOOKING_CONFIRMED_EMAIL -> {
+                    String toEmail = requireField(payload, "email", event.getEventType());
+                    String link = payload.path("locationOrLink").asText("");
+                    String mode = payload.path("interviewMode").asText("ONLINE");
+                    String meetingLine;
+                    if ("ONLINE".equalsIgnoreCase(mode)) {
+                        String effectiveLink = link.isBlank()
+                                ? com.hirewise.be.service.InterviewService.generateGoogleMeetLink()
+                                : link;
+                        meetingLine = "Link phong hop (Google Meet): " + effectiveLink;
+                    } else {
+                        meetingLine = "Dia diem phong van: " + link;
+                    }
+
+                    java.util.Map<String, String> vars = new java.util.HashMap<>();
+                    vars.put("Candidate_Name", payload.path("candidateName").asText(""));
+                    vars.put("Job_Title", payload.path("jobTitle").asText(""));
+                    vars.put("Interview_Date", payload.path("interviewDate").asText(""));
+                    vars.put("Interview_Time", payload.path("interviewTime").asText(""));
+                    vars.put("Meeting_Location_Or_Link", meetingLine);
+                    vars.put("Company", "HireWise");
+                    emailService.sendTemplateEmail(toEmail, "EM-07", vars);
+                }
+                // EM-10 (UC-32): the channel list is already rendered into one string by
+                // JobShareService - the template has a single {{Channel_Status_List}}
+                // placeholder, and EmailServiceImpl only does flat {{Key}} substitution,
+                // so there is nowhere to loop here.
+                case JOB_SHARE_SUMMARY_EMAIL -> {
+                    java.util.Map<String, String> vars = new java.util.HashMap<>();
+                    vars.put("Recruiter_Name", payload.path("recruiterName").asText(""));
+                    vars.put("Job_Title", payload.path("jobTitle").asText(""));
+                    vars.put("Channel_Status_List", payload.path("channelStatusList").asText(""));
+                    vars.put("Job_Link", payload.path("jobLink").asText(""));
+                    emailService.sendTemplateEmail(
+                            requireField(payload, "email", event.getEventType()), "EM-10", vars);
+                }
             }
             event.setStatus(OutboxEventStatus.SENT);
             event.setProcessedAt(Instant.now(clock));

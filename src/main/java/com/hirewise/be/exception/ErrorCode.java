@@ -100,6 +100,7 @@ public enum ErrorCode {
     INTERVIEW_INTERVIEWER_INACTIVE("error.interview_interviewer_inactive"),
     INTERVIEW_TIME_IN_PAST("error.interview_time_in_past"),
     INTERVIEWER_TIME_CONFLICT("error.interviewer_time_conflict"),
+    INTERVIEWER_TIME_CONFLICT_DETAILED("error.interviewer_time_conflict_detailed"),
 
     // UC-36 Generate an Offer Letter from a template (BR-OFFER-01/02, EX-01)
     OFFER_TEMPLATE_NOT_FOUND("error.offer_template_not_found"),
@@ -138,6 +139,30 @@ public enum ErrorCode {
     OFFER_ALREADY_SIGNED("error.offer_already_signed"),
     OFFER_NOT_SIGNABLE("error.offer_not_signable"),
     PIPELINE_MISSING_TERMINAL_SUCCESS_STAGE("error.pipeline_missing_terminal_success_stage"),
+
+    // UC-25, UC-34, UC-35 Self-service Booking
+    BOOKING_TOKEN_INVALID("error.booking_token_invalid"),
+    BOOKING_TOKEN_EXPIRED("error.booking_token_expired"),
+    BOOKING_SLOT_NOT_FOUND("error.booking_slot_not_found"),
+    BOOKING_SLOT_UNAVAILABLE("error.booking_slot_unavailable"),
+    BOOKING_NO_OPEN_SLOTS("error.booking_no_open_slots"),
+
+    // UC-45 Publish an approved Job Position to the Job Board (BR-APR-03)
+    /** [Dang tin] pressed on a Job that is not in APPROVED status. */
+    JOB_POSITION_NOT_PUBLISHABLE("error.job_position_not_publishable"),
+
+    // UC-44 Close / pause / resume a published Job Position (BR-JOB-04/05)
+    /** Pause/Close/Resume attempted from a status that does not allow it. */
+    JOB_STATUS_TRANSITION_NOT_ALLOWED("error.job_status_transition_not_allowed"),
+    /** ME-38: the Job is Paused or Closed, so its JD/salary can no longer be edited. */
+    JOB_POSITION_PAUSED_OR_CLOSED("error.job_position_paused_or_closed"),
+
+    // UC-19/UC-31/UC-32 Share a Job Position to external channels (BR-POST-01/02)
+    /** BR-POST-01: only a Published Job may be shared to an external channel. */
+    JOB_NOT_SHAREABLE("error.job_not_shareable"),
+    PUBLISHING_CHANNEL_NOT_FOUND("error.publishing_channel_not_found"),
+    /** UC-31 EX-01: HR Admin has switched this channel off (UC-19). */
+    PUBLISHING_CHANNEL_DISABLED("error.publishing_channel_disabled"),
 
     // UC-27/UC-28 Structured Scorecard
     INTERVIEW_NOT_FOUND("error.interview_not_found"),
