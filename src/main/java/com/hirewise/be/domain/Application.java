@@ -60,6 +60,14 @@ public class Application {
     @Column(name = "ai_match_score")
     private BigDecimal aiMatchScore;
 
+    /**
+     * UC-32: the {@code utm_source} of the share link that brought this
+     * candidate in, matched against {@code publishing_channels.utm_source}.
+     * {@code null} means they reached the Job Board directly.
+     */
+    @Column(name = "source", length = 50)
+    private String source;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 

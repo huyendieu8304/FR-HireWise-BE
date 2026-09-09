@@ -149,6 +149,13 @@ public enum ErrorCode {
     /** ME-38: the Job is Paused or Closed, so its JD/salary can no longer be edited. */
     JOB_POSITION_PAUSED_OR_CLOSED("error.job_position_paused_or_closed"),
 
+    // UC-19/UC-31/UC-32 Share a Job Position to external channels (BR-POST-01/02)
+    /** BR-POST-01: only a Published Job may be shared to an external channel. */
+    JOB_NOT_SHAREABLE("error.job_not_shareable"),
+    PUBLISHING_CHANNEL_NOT_FOUND("error.publishing_channel_not_found"),
+    /** UC-31 EX-01: HR Admin has switched this channel off (UC-19). */
+    PUBLISHING_CHANNEL_DISABLED("error.publishing_channel_disabled"),
+
     ;
 
     private final String key;

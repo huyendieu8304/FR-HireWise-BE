@@ -70,4 +70,31 @@ public interface ApplicationRepository extends JpaRepository<Application, UUID> 
             """)
     List<Application> findByJobPosition_IdAndCurrentStage_Id(
             @Param("jobPositionId") UUID jobPositionId, @Param("stageId") Long stageId);
+
+    /**
+     * UC-32: how many candidates each sharing channel actually brought in for
+     * one Job, grouped by the {@code utm_source} captured at apply time.
+     *
+     * <p>Rows with a {@code null} source (candidates who reached the Job Board
+     * directly) are excluded here - the stats panel reports them separately as
+     * a total rather than as a channel row.</p>
+     *
+     * @param jobPositionId id of the job position
+     * @return {@code [source, count]} pairs, one per distinct non-null source
+     */
+    @Query("""
+            SELECT a.source, COUNT(a) FROM Application a
+            WHERE a.jobPosition.id = :jobPositionId AND a.source IS NOT NULL
+            GROUP BY a.source
+            """)
+    List<Object[]> countByJobGroupedBySource(@Param("jobPositionId") UUID jobPositionId);
+
+    /**
+     * UC-32: total applications for the Job, the denominator the per-channel
+     * counts are compared against.
+     *
+     * @param jobPositionId id of the job position
+     * @return number of applications for this job, whatever their source
+     */
+    long countByJobPosition_Id(UUID jobPositionId);
 }
