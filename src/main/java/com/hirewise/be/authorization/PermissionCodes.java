@@ -18,6 +18,8 @@ public final class PermissionCodes {
     public static final String USER_VIEW = "USER_VIEW";
     public static final String ROLE_ASSIGN = "ROLE_ASSIGN";
     public static final String PIPELINE_MANAGE = "PIPELINE_MANAGE";
+    /** Read-only: list Pipeline Templates/Stages - e.g. Recruiter picking one for UC-13 (V40). */
+    public static final String PIPELINE_VIEW = "PIPELINE_VIEW";
     public static final String EMAIL_TEMPLATE_MANAGE = "EMAIL_TEMPLATE_MANAGE";
     public static final String INTEGRATION_MANAGE = "INTEGRATION_MANAGE";
 

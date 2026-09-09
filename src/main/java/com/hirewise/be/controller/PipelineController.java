@@ -26,16 +26,20 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 
 /**
- * UC-04/UC-05/UC-06: Pipeline Template + Stage configuration. Every
- * endpoint here requires {@code PIPELINE_MANAGE} (HR_ADMIN), enforced
- * inside {@link PipelineService} rather than duplicated as a role gate
- * here (see the {@code authorization} package).
+ * UC-04/UC-05/UC-06: Pipeline Template + Stage configuration - and UC-13's
+ * read-only "pick a Template to assign to a Job" step (Recruiter). Every
+ * endpoint's permission is enforced inside {@link PipelineService} rather
+ * than duplicated as a role gate here (see the {@code authorization}
+ * package).
  * <p>
- * RBAC per endpoint:
+ * RBAC per endpoint - split (V40) between {@code PIPELINE_VIEW} (read-only,
+ * HR_ADMIN + RECRUITER) and {@code PIPELINE_MANAGE} (create/edit/delete,
+ * HR_ADMIN only) so Recruiter can list/preview Templates for UC-13 without
+ * also being granted the ability to modify Pipeline configuration:
  * <ul>
- *   <li>{@code GET    /api/pipeline-templates}                                 - {@code PIPELINE_MANAGE}</li>
+ *   <li>{@code GET    /api/pipeline-templates}                                 - {@code PIPELINE_VIEW}</li>
  *   <li>{@code POST   /api/pipeline-templates}                                 - {@code PIPELINE_MANAGE}</li>
- *   <li>{@code GET    /api/pipeline-templates/{templateId}/stages}             - {@code PIPELINE_MANAGE}</li>
+ *   <li>{@code GET    /api/pipeline-templates/{templateId}/stages}             - {@code PIPELINE_VIEW}</li>
  *   <li>{@code POST   /api/pipeline-templates/{templateId}/stages}             - {@code PIPELINE_MANAGE}</li>
  *   <li>{@code PATCH  /api/pipeline-templates/{templateId}/stages/reorder}     - {@code PIPELINE_MANAGE}</li>
  *   <li>{@code DELETE /api/pipeline-templates/{templateId}/stages/{stageId}}   - {@code PIPELINE_MANAGE}</li>
@@ -51,7 +55,7 @@ public class PipelineController {
     PipelineService pipelineService;
 
     /**
-     * UC-04 step 1: lists every Pipeline Template. Requires {@code PIPELINE_MANAGE}.
+     * UC-04 step 1 / UC-13: lists every Pipeline Template. Requires {@code PIPELINE_VIEW}.
      *
      * @param currentUser authenticated caller, used for authorization
      * @return every template, most recently created first
@@ -78,8 +82,8 @@ public class PipelineController {
     }
 
     /**
-     * UC-04 step 1: lists the stages of one Pipeline Template, in Kanban
-     * column order. Requires {@code PIPELINE_MANAGE}.
+     * UC-04 step 1 / UC-13: lists the stages of one Pipeline Template, in
+     * Kanban column order. Requires {@code PIPELINE_VIEW}.
      *
      * @param templateId  id of the pipeline template
      * @param currentUser authenticated caller, used for authorization
