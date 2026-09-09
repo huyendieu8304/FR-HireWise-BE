@@ -65,14 +65,17 @@ public class PipelineService {
     Clock clock;
 
     /**
-     * UC-04 step 1: pipeline templates an HR Admin can choose from (or add
-     * a new stage to).
+     * UC-04 step 1 / UC-13: pipeline templates an HR Admin can choose from
+     * (or add a new stage to) on the Pipeline Management page, and also
+     * what a Recruiter picks from on the Job "Submit for approval" screen
+     * (read-only there - {@code PIPELINE_VIEW}, not {@code PIPELINE_MANAGE},
+     * so Recruiter isn't also granted create/edit/delete on Pipelines).
      *
-     * @param currentUser authenticated caller, must have {@code PIPELINE_MANAGE}
+     * @param currentUser authenticated caller, must have {@code PIPELINE_VIEW}
      * @return every template, most recently created first
      */
     public List<PipelineTemplateResponseDto> listTemplates(CurrentUser currentUser) {
-        accessControlService.checkAccess(currentUser, PermissionCodes.PIPELINE_MANAGE, ResourceContext.none());
+        accessControlService.checkAccess(currentUser, PermissionCodes.PIPELINE_VIEW, ResourceContext.none());
         return pipelineTemplateRepository.findAllByOrderByCreatedAtDesc().stream()
                 .map(PipelineMapper::toResponseDto)
                 .toList();
@@ -114,16 +117,19 @@ public class PipelineService {
     }
 
     /**
-     * UC-04 step 1: current stages of a template, in Kanban column order.
-     * Stages soft-deleted by UC-06 ({@code is_active = false}) are excluded.
+     * UC-04 step 1 / UC-13: current stages of a template, in Kanban column
+     * order - also what a Recruiter previews before assigning a Template to
+     * their Job (read-only there, see {@link #listTemplates}'s Javadoc for
+     * why {@code PIPELINE_VIEW}, not {@code PIPELINE_MANAGE}). Stages
+     * soft-deleted by UC-06 ({@code is_active = false}) are excluded.
      *
      * @param templateId  id of the pipeline template
-     * @param currentUser authenticated caller, must have {@code PIPELINE_MANAGE}
+     * @param currentUser authenticated caller, must have {@code PIPELINE_VIEW}
      * @return the template's active stages ordered by position
      * @throws ResourceNotFoundException if no template exists with {@code templateId}
      */
     public List<PipelineStageResponseDto> listStages(Long templateId, CurrentUser currentUser) {
-        accessControlService.checkAccess(currentUser, PermissionCodes.PIPELINE_MANAGE, ResourceContext.none());
+        accessControlService.checkAccess(currentUser, PermissionCodes.PIPELINE_VIEW, ResourceContext.none());
         findTemplateOrThrow(templateId);
 
         List<PipelineStage> stages =

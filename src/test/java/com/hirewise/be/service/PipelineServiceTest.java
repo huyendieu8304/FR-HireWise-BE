@@ -150,6 +150,18 @@ class PipelineServiceTest {
     }
 
     @Test
+    void listTemplates_checksAccessWithPipelineView() {
+        // Bugfix regression (V40): Recruiter picking a Template for UC-13 needs
+        // PIPELINE_VIEW, not PIPELINE_MANAGE (which only HR_ADMIN holds) - this
+        // endpoint must never require the write-capable permission.
+        when(pipelineTemplateRepository.findAllByOrderByCreatedAtDesc()).thenReturn(List.of());
+
+        pipelineService.listTemplates(hrAdmin);
+
+        verify(accessControlService).checkAccess(hrAdmin, PermissionCodes.PIPELINE_VIEW, ResourceContext.none());
+    }
+
+    @Test
     void listStages_unknownTemplate_throwsResourceNotFound() {
         when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.empty());
 
@@ -172,6 +184,8 @@ class PipelineServiceTest {
 
         assertThat(stages).hasSize(1);
         assertThat(stages.get(0).getCode()).isEqualTo("NEW");
+        // Bugfix regression (V40): same PIPELINE_VIEW requirement as listTemplates.
+        verify(accessControlService).checkAccess(hrAdmin, PermissionCodes.PIPELINE_VIEW, ResourceContext.none());
     }
 
     @Test

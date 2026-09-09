@@ -238,6 +238,9 @@ public class InterviewService {
         Interview interview = Interview.builder()
                 .application(application)
                 .scheduledBy(scheduledByUser)
+                // UC-28: anchors this interview permanently to the (Job, Stage) Scorecard
+                // that was configured for toStage - see Interview#pipelineStage Javadoc.
+                .pipelineStage(toStage)
                 .interviewDate(request.getInterviewDate())
                 .interviewTime(request.getInterviewTime())
                 .mode(request.getMode())

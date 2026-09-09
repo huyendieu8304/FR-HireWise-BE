@@ -56,6 +56,7 @@ public class ApplicationController {
     KanbanService kanbanService;
     AiScreeningService aiScreeningService;
     InterviewService interviewService;
+    ScorecardSubmissionService scorecardSubmissionService;
 
     /**
      * UC-20 main flow: the Applicant Card - full detail of one Candidate's
@@ -262,5 +263,21 @@ public class ApplicationController {
             @CurrentUserPrincipal CurrentUser currentUser) {
         aiScreeningService.runManual(applicationId, currentUser);
         return ResponseEntity.accepted().build();
+    }
+
+    /**
+     * UC-28 step 6: the Applicant Card [Scorecard] tab - every Interview of
+     * this Application, each with every evaluator's Scorecard result, plus
+     * the average Weighted Score across the whole Application.
+     *
+     * @param applicationId id of the application
+     * @param currentUser   authenticated caller, used for authorization ({@code APPLICATION_VIEW})
+     * @return the grouped Scorecard view
+     */
+    @GetMapping("/{applicationId}/scorecards")
+    public ResponseEntity<com.hirewise.be.dto.response.ApplicationScorecardsResponseDto> getScorecards(
+            @PathVariable UUID applicationId,
+            @CurrentUserPrincipal CurrentUser currentUser) {
+        return ResponseEntity.ok(scorecardSubmissionService.listForApplication(applicationId, currentUser));
     }
 }

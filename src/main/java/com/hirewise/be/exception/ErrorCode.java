@@ -164,6 +164,31 @@ public enum ErrorCode {
     /** UC-31 EX-01: HR Admin has switched this channel off (UC-19). */
     PUBLISHING_CHANNEL_DISABLED("error.publishing_channel_disabled"),
 
+    // UC-27/UC-28 Structured Scorecard
+    INTERVIEW_NOT_FOUND("error.interview_not_found"),
+    SCORECARD_TEMPLATE_NOT_FOUND("error.scorecard_template_not_found"),
+    /** EX-01: total weight = 0 would make BR-SCORE-02's division meaningless. */
+    SCORECARD_TEMPLATE_TOTAL_WEIGHT_ZERO("error.scorecard_template_total_weight_zero"),
+    SCORECARD_TEMPLATE_NO_CRITERIA("error.scorecard_template_no_criteria"),
+    SCORECARD_SUBMISSION_NOT_FOUND("error.scorecard_submission_not_found"),
+    /** Layer 4: neither an assigned Interviewer of this Interview, nor its Job's Hiring Manager. */
+    SCORECARD_NOT_AN_EVALUATOR("error.scorecard_not_an_evaluator"),
+    /** BR-SCORE-03: locked_at is set - only the HR Admin-only unlock action can clear it. */
+    SCORECARD_SUBMISSION_LOCKED("error.scorecard_submission_locked"),
+    /** BR-SCORE-01/EX-01, ME-29: a required criterion has no score, or the overall comment is blank. */
+    SCORECARD_SUBMISSION_INCOMPLETE("error.scorecard_submission_incomplete"),
+    SCORECARD_CRITERION_NOT_IN_TEMPLATE("error.scorecard_criterion_not_in_template"),
+    /** UC-28 step 2/US-INT-02: score submitted for a criterion exceeds that criterion's own max_score. */
+    SCORECARD_SCORE_EXCEEDS_MAX("error.scorecard_score_exceeds_max"),
+    /** Unlock attempted on a submission that was never locked in the first place. */
+    SCORECARD_SUBMISSION_NOT_LOCKED("error.scorecard_submission_not_locked"),
+    /** No (Job, Stage) Scorecard has been configured for this pair yet. */
+    JOB_STAGE_SCORECARD_NOT_FOUND("error.job_stage_scorecard_not_found"),
+    /** UC-27 step 3: a Scorecard can only be configured for an INTERVIEW-type Stage. */
+    SCORECARD_STAGE_NOT_INTERVIEW_TYPE("error.scorecard_stage_not_interview_type"),
+    /** UC-14/15 hard gate: at least 1 INTERVIEW-type Stage of the Job's pipeline has no Scorecard configured. */
+    JOB_APPROVAL_SCORECARD_MISSING("error.job_approval_scorecard_missing"),
+
     ;
 
     private final String key;
