@@ -222,6 +222,32 @@ class JobServiceTest {
         verify(departmentRepository, never()).findById(any());
     }
 
+    /**
+     * UC-44 EX-01 / ME-38: Paused va Closed cung khong sua duoc, nhung phai ra
+     * message rieng vi loi thoat khac nhau - Paused thi Mo lai roi sua tiep,
+     * Closed thi phai tao Job moi (BR-JOB-05).
+     */
+    @Test
+    void updateDraftJob_pausedStatus_throwsPausedOrClosed_ME_38() {
+        when(jobPositionRepository.findById(JOB_ID))
+                .thenReturn(Optional.of(draftJob(JobStatus.PAUSED, DEPARTMENT_ID)));
+
+        assertThatThrownBy(() -> jobService.updateDraftJob(JOB_ID, validRequest(), recruiter))
+                .isInstanceOf(BusinessConflictException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.JOB_POSITION_PAUSED_OR_CLOSED);
+        verify(departmentRepository, never()).findById(any());
+    }
+
+    @Test
+    void updateDraftJob_closedStatus_throwsPausedOrClosed_ME_38() {
+        when(jobPositionRepository.findById(JOB_ID))
+                .thenReturn(Optional.of(draftJob(JobStatus.CLOSED, DEPARTMENT_ID)));
+
+        assertThatThrownBy(() -> jobService.updateDraftJob(JOB_ID, validRequest(), recruiter))
+                .isInstanceOf(BusinessConflictException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.JOB_POSITION_PAUSED_OR_CLOSED);
+    }
+
     @Test
     void updateDraftJob_draftStatus_updatesFieldsSuccessfully() {
         when(jobPositionRepository.findById(JOB_ID))
