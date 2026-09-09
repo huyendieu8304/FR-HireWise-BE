@@ -4,11 +4,14 @@ import com.hirewise.be.dto.response.PipelineVelocityReportResponseDto;
 import com.hirewise.be.dto.response.SourceRoiReportResponseDto;
 import com.hirewise.be.security.CurrentUser;
 import com.hirewise.be.security.CurrentUserPrincipal;
+import com.hirewise.be.service.ReportExportService;
 import com.hirewise.be.service.ReportService;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.experimental.FieldDefaults;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -38,6 +41,7 @@ import java.util.UUID;
 public class ReportController {
 
     ReportService reportService;
+    ReportExportService reportExportService;
 
     /**
      * UC-42: share of applications, hire rate and channel traffic by source.
@@ -81,5 +85,73 @@ public class ReportController {
 
         return ResponseEntity.ok(reportService.getPipelineVelocityReport(
                 currentUser, fromDate, toDate, departmentId, jobPositionId));
+    }
+
+    /**
+     * UC-42 normal flow step 4 (BR-RPT-03): the same numbers as
+     * {@link #sourceRoi} as a downloadable workbook.
+     *
+     * <p>The report is rebuilt server-side from the query parameters rather
+     * than posted back from the browser, so the file can never disagree with
+     * what the caller is allowed to see.</p>
+     *
+     * @param fromDate      inclusive first day; defaults to 90 days before {@code toDate}
+     * @param toDate        inclusive last day; defaults to today
+     * @param departmentId  optional department filter
+     * @param jobPositionId optional Job filter
+     * @param currentUser   authenticated caller, must hold {@code REPORT_VIEW}
+     * @return an .xlsx attachment
+     */
+    @GetMapping("/source-roi/export")
+    public ResponseEntity<byte[]> exportSourceRoi(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate,
+            @RequestParam(required = false) Long departmentId,
+            @RequestParam(required = false) UUID jobPositionId,
+            @CurrentUserPrincipal CurrentUser currentUser) {
+
+        SourceRoiReportResponseDto report = reportService.getSourceRoiReport(
+                currentUser, fromDate, toDate, departmentId, jobPositionId);
+
+        return workbook(reportExportService.toSourceRoiWorkbook(report),
+                reportExportService.fileName("source-roi", report.getToDate()));
+    }
+
+    /**
+     * UC-43 (BR-RPT-03): the Pipeline Velocity table as a downloadable workbook.
+     *
+     * @param fromDate      inclusive first day; defaults to 90 days before {@code toDate}
+     * @param toDate        inclusive last day; defaults to today
+     * @param departmentId  optional department filter
+     * @param jobPositionId optional Job filter
+     * @param currentUser   authenticated caller, must hold {@code REPORT_VIEW}
+     * @return an .xlsx attachment
+     */
+    @GetMapping("/pipeline-velocity/export")
+    public ResponseEntity<byte[]> exportPipelineVelocity(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate,
+            @RequestParam(required = false) Long departmentId,
+            @RequestParam(required = false) UUID jobPositionId,
+            @CurrentUserPrincipal CurrentUser currentUser) {
+
+        PipelineVelocityReportResponseDto report = reportService.getPipelineVelocityReport(
+                currentUser, fromDate, toDate, departmentId, jobPositionId);
+
+        return workbook(reportExportService.toPipelineVelocityWorkbook(report),
+                reportExportService.fileName("pipeline-velocity", report.getToDate()));
+    }
+
+    /**
+     * @param bytes    the serialised workbook
+     * @param fileName name the browser saves the download under
+     * @return the attachment response
+     */
+    private ResponseEntity<byte[]> workbook(byte[] bytes, String fileName) {
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType(
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + fileName + "\"")
+                .body(bytes);
     }
 }

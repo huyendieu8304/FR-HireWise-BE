@@ -31,6 +31,7 @@
         <flyway.version>10.20.0</flyway.version>
         <logstash-logback-encoder.version>9.0</logstash-logback-encoder.version>
         <openhtmltopdf.version>1.0.10</openhtmltopdf.version>
+        <poi.version>5.4.1</poi.version>
     </properties>
     <dependencies>
         <dependency>
@@ -120,6 +121,19 @@
             <groupId>com.openhtmltopdf</groupId>
             <artifactId>openhtmltopdf-pdfbox</artifactId>
             <version>${openhtmltopdf.version}</version>
+        </dependency>
+        <!--
+            UC-42/UC-43 (BR-RPT-03): the reporting dashboards export to .xlsx.
+            CSV would need no dependency, but Excel guesses types out of a CSV
+            and mangles Vietnamese unless the BOM survives the round trip, so
+            the numbers people base budget decisions on would arrive as text or
+            as dates. POI writes a real workbook with real number formats.
+            Apache-2.0.
+        -->
+        <dependency>
+            <groupId>org.apache.poi</groupId>
+            <artifactId>poi-ooxml</artifactId>
+            <version>${poi.version}</version>
         </dependency>
         <!-- UC-21: AI Match Analysis - calls the Anthropic Claude API (see ai/ package) -->
         <dependency>
