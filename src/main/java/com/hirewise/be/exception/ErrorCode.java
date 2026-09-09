@@ -100,6 +100,7 @@ public enum ErrorCode {
     INTERVIEW_INTERVIEWER_INACTIVE("error.interview_interviewer_inactive"),
     INTERVIEW_TIME_IN_PAST("error.interview_time_in_past"),
     INTERVIEWER_TIME_CONFLICT("error.interviewer_time_conflict"),
+    INTERVIEWER_TIME_CONFLICT_DETAILED("error.interviewer_time_conflict_detailed"),
 
     // UC-36 Generate an Offer Letter from a template (BR-OFFER-01/02, EX-01)
     OFFER_TEMPLATE_NOT_FOUND("error.offer_template_not_found"),
@@ -138,6 +139,13 @@ public enum ErrorCode {
     OFFER_ALREADY_SIGNED("error.offer_already_signed"),
     OFFER_NOT_SIGNABLE("error.offer_not_signable"),
     PIPELINE_MISSING_TERMINAL_SUCCESS_STAGE("error.pipeline_missing_terminal_success_stage"),
+
+    // UC-25, UC-34, UC-35 Self-service Booking
+    BOOKING_TOKEN_INVALID("error.booking_token_invalid"),
+    BOOKING_TOKEN_EXPIRED("error.booking_token_expired"),
+    BOOKING_SLOT_NOT_FOUND("error.booking_slot_not_found"),
+    BOOKING_SLOT_UNAVAILABLE("error.booking_slot_unavailable"),
+    BOOKING_NO_OPEN_SLOTS("error.booking_no_open_slots"),
 
     // UC-45 Publish an approved Job Position to the Job Board (BR-APR-03)
     /** [Dang tin] pressed on a Job that is not in APPROVED status. */
