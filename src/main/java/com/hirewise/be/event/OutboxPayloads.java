@@ -206,5 +206,28 @@ public final class OutboxPayloads {
                 "startDate", startDate == null ? "" : startDate,
                 "signedFileLink", signedFileLink == null ? "" : signedFileLink);
     }
+
+    /**
+     * Payload for {@link OutboxEventType#JOB_SHARE_SUMMARY_EMAIL} (EM-10, UC-32
+     * step 4). Sent to the Recruiter once they finish sharing a Job.
+     *
+     * @param email             the Recruiter's address
+     * @param recruiterName     shown in the greeting
+     * @param jobTitle          the shared job
+     * @param channelStatusList the channels already rendered as one text block
+     * @param jobLink           deep link back to the Job detail page
+     * @return the immutable payload map
+     */
+    public static Map<String, Object> jobShareSummaryEmail(
+            String email, String recruiterName, String jobTitle,
+            String channelStatusList, String jobLink) {
+        java.util.HashMap<String, Object> payload = new java.util.HashMap<>();
+        payload.put("email", email == null ? "" : email);
+        payload.put("recruiterName", recruiterName == null ? "" : recruiterName);
+        payload.put("jobTitle", jobTitle == null ? "" : jobTitle);
+        payload.put("channelStatusList", channelStatusList == null ? "" : channelStatusList);
+        payload.put("jobLink", jobLink == null ? "" : jobLink);
+        return java.util.Collections.unmodifiableMap(payload);
+    }
 }
 

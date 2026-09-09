@@ -164,6 +164,19 @@ public class OutboxDispatcher {
                         requireField(payload, "signedAt", event.getEventType()),
                         payload.path("startDate").asText(null),
                         payload.path("signedFileLink").asText(null));
+                // EM-10 (UC-32): the channel list is already rendered into one string by
+                // JobShareService - the template has a single {{Channel_Status_List}}
+                // placeholder, and EmailServiceImpl only does flat {{Key}} substitution,
+                // so there is nowhere to loop here.
+                case JOB_SHARE_SUMMARY_EMAIL -> {
+                    java.util.Map<String, String> vars = new java.util.HashMap<>();
+                    vars.put("Recruiter_Name", payload.path("recruiterName").asText(""));
+                    vars.put("Job_Title", payload.path("jobTitle").asText(""));
+                    vars.put("Channel_Status_List", payload.path("channelStatusList").asText(""));
+                    vars.put("Job_Link", payload.path("jobLink").asText(""));
+                    emailService.sendTemplateEmail(
+                            requireField(payload, "email", event.getEventType()), "EM-10", vars);
+                }
             }
             event.setStatus(OutboxEventStatus.SENT);
             event.setProcessedAt(Instant.now(clock));
