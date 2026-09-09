@@ -15,16 +15,28 @@ import com.hirewise.be.domain.PipelineTemplate;
 import com.hirewise.be.domain.StageType;
 import com.hirewise.be.domain.User;
 import com.hirewise.be.domain.UserStatus;
+import com.hirewise.be.domain.InterviewBookingRequest;
+import com.hirewise.be.domain.InterviewBookingRequestStatus;
+import com.hirewise.be.domain.InterviewBookingSlot;
+import com.hirewise.be.domain.InterviewBookingSlotStatus;
+import com.hirewise.be.dto.request.ConfirmBookingSlotRequestDto;
 import com.hirewise.be.dto.request.ScheduleInterviewRequestDto;
+import com.hirewise.be.dto.request.SendBookingLinkRequestDto;
+import com.hirewise.be.dto.response.BookingConfirmResponseDto;
+import com.hirewise.be.dto.response.BookingPageResponseDto;
+import com.hirewise.be.dto.response.BookingRequestResponseDto;
 import com.hirewise.be.dto.response.InterviewerOptionDto;
 import com.hirewise.be.dto.response.ScheduleInterviewResponseDto;
 import com.hirewise.be.event.OutboxEventPublisher;
 import com.hirewise.be.event.OutboxEventType;
 import com.hirewise.be.exception.BadRequestException;
 import com.hirewise.be.exception.BusinessConflictException;
+import com.hirewise.be.exception.ErrorCode;
 import com.hirewise.be.exception.ResourceNotFoundException;
 import com.hirewise.be.repository.ApplicationRepository;
 import com.hirewise.be.repository.ApplicationStageHistoryRepository;
+import com.hirewise.be.repository.InterviewBookingRequestRepository;
+import com.hirewise.be.repository.InterviewBookingSlotRepository;
 import com.hirewise.be.repository.InterviewParticipantRepository;
 import com.hirewise.be.repository.InterviewRepository;
 import com.hirewise.be.repository.PipelineStageRepository;
@@ -87,6 +99,12 @@ class InterviewServiceTest {
     @Mock
     CalendarIntegrationService calendarIntegrationService;
 
+    @Mock
+    InterviewBookingRequestRepository interviewBookingRequestRepository;
+
+    @Mock
+    InterviewBookingSlotRepository interviewBookingSlotRepository;
+
     InterviewService interviewService;
 
     Clock fixedClock;
@@ -107,7 +125,10 @@ class InterviewServiceTest {
                 outboxEventPublisher,
                 accessControlService,
                 calendarIntegrationService,
-                fixedClock
+                fixedClock,
+                interviewBookingRequestRepository,
+                interviewBookingSlotRepository,
+                "http://localhost:5173/booking"
         );
         recruiterUser = new CurrentUser(100L, "recruiter@hirewise.vn", "Recruiter A", Set.of("RECRUITER"));
     }
@@ -454,4 +475,225 @@ class InterviewServiceTest {
 
         assertThat(result).hasSize(2);
     }
+
+    // =========================================================================
+    // UC-25: Self-service booking tests
+    // =========================================================================
+
+    @Test
+    @DisplayName("UC-25: Sends booking link successfully and publishes EM-06 outbox event")
+    void sendBookingLink_success() {
+        UUID appId = UUID.randomUUID();
+        PipelineTemplate template = PipelineTemplate.builder().id(1L).build();
+        PipelineStage stage = PipelineStage.builder()
+                .id(10L)
+                .name("Screening")
+                .stageType(StageType.SCREENING)
+                .pipelineTemplate(template)
+                .terminal(false)
+                .active(true)
+                .build();
+        Candidate candidate = Candidate.builder()
+                .id(UUID.randomUUID())
+                .fullName("Nguyen Van B")
+                .primaryEmail("candidateb@gmail.com")
+                .build();
+        JobPosition job = JobPosition.builder()
+                .id(UUID.randomUUID())
+                .title("Backend Java Engineer")
+                .pipelineTemplate(template)
+                .build();
+        Application app = Application.builder()
+                .id(appId)
+                .candidate(candidate)
+                .jobPosition(job)
+                .currentStage(stage)
+                .status(ApplicationStatus.IN_PROGRESS)
+                .build();
+
+        User interviewer = User.builder()
+                .id(20L)
+                .fullName("Interviewer B")
+                .email("interviewer.b@hirewise.vn")
+                .status(UserStatus.ACTIVE)
+                .build();
+
+        when(applicationRepository.findById(appId)).thenReturn(Optional.of(app));
+        when(userRepository.findById(20L)).thenReturn(Optional.of(interviewer));
+        when(userRepository.getReferenceById(100L)).thenReturn(User.builder().id(100L).fullName("Recruiter A").build());
+        when(interviewBookingRequestRepository.findByApplication_IdOrderByCreatedAtDesc(appId)).thenReturn(List.of());
+        when(interviewBookingRequestRepository.save(any(InterviewBookingRequest.class)))
+                .thenAnswer(inv -> {
+                    InterviewBookingRequest r = inv.getArgument(0);
+                    r.setId(500L);
+                    return r;
+                });
+
+        SendBookingLinkRequestDto request = SendBookingLinkRequestDto.builder()
+                .interviewerId(20L)
+                .dateRangeStart(LocalDate.of(2026, 9, 10))
+                .dateRangeEnd(LocalDate.of(2026, 9, 15))
+                .mode(InterviewMode.ONLINE)
+                .slots(List.of(
+                        SendBookingLinkRequestDto.SlotItemDto.builder()
+                                .slotDate(LocalDate.of(2026, 9, 10))
+                                .slotTime(LocalTime.of(9, 0))
+                                .durationMinutes(45)
+                                .build(),
+                        SendBookingLinkRequestDto.SlotItemDto.builder()
+                                .slotDate(LocalDate.of(2026, 9, 10))
+                                .slotTime(LocalTime.of(10, 0))
+                                .durationMinutes(45)
+                                .build()
+                ))
+                .build();
+
+        BookingRequestResponseDto response = interviewService.sendBookingLink(appId, request, recruiterUser);
+
+        assertThat(response).isNotNull();
+        assertThat(response.getId()).isEqualTo(500L);
+        assertThat(response.getBookingLink()).contains(response.getBookingToken().toString());
+        assertThat(response.getTotalSlots()).isEqualTo(2);
+
+        verify(interviewBookingSlotRepository, times(2)).save(any(InterviewBookingSlot.class));
+        verify(outboxEventPublisher).publish(eq(OutboxEventType.BOOKING_LINK_EMAIL), any());
+    }
+
+    @Test
+    @DisplayName("UC-25: sendBookingLink with targetStageId transitions stage and records history immediately")
+    void sendBookingLink_withTargetStage_transitionsStageImmediately() {
+        UUID appId = UUID.randomUUID();
+        PipelineTemplate template = PipelineTemplate.builder().id(1L).build();
+        PipelineStage fromStage = PipelineStage.builder()
+                .id(10L)
+                .name("Screening")
+                .stageType(StageType.SCREENING)
+                .pipelineTemplate(template)
+                .terminal(false)
+                .active(true)
+                .build();
+        PipelineStage targetStage = PipelineStage.builder()
+                .id(20L)
+                .name("Interview")
+                .stageType(StageType.INTERVIEW)
+                .pipelineTemplate(template)
+                .active(true)
+                .terminal(false)
+                .build();
+        JobPosition job = JobPosition.builder().id(UUID.randomUUID()).title("Backend Engineer").pipelineTemplate(template).build();
+        Candidate candidate = Candidate.builder().id(UUID.randomUUID()).fullName("Candidate B").primaryEmail("cand.b@gmail.com").build();
+        Application app = Application.builder()
+                .id(appId)
+                .candidate(candidate)
+                .jobPosition(job)
+                .currentStage(fromStage)
+                .status(ApplicationStatus.IN_PROGRESS)
+                .build();
+        User interviewer = User.builder()
+                .id(20L)
+                .fullName("Interviewer B")
+                .email("interviewer.b@hirewise.vn")
+                .status(UserStatus.ACTIVE)
+                .build();
+
+        when(applicationRepository.findById(appId)).thenReturn(Optional.of(app));
+        when(pipelineStageRepository.findById(20L)).thenReturn(Optional.of(targetStage));
+        when(userRepository.findById(20L)).thenReturn(Optional.of(interviewer));
+        when(userRepository.getReferenceById(100L)).thenReturn(User.builder().id(100L).fullName("Recruiter A").build());
+        when(interviewBookingRequestRepository.findByApplication_IdOrderByCreatedAtDesc(appId)).thenReturn(List.of());
+        when(interviewBookingRequestRepository.save(any(InterviewBookingRequest.class)))
+                .thenAnswer(inv -> {
+                    InterviewBookingRequest r = inv.getArgument(0);
+                    r.setId(501L);
+                    return r;
+                });
+
+        SendBookingLinkRequestDto request = SendBookingLinkRequestDto.builder()
+                .interviewerId(20L)
+                .targetStageId(20L)
+                .dateRangeStart(LocalDate.of(2026, 9, 10))
+                .dateRangeEnd(LocalDate.of(2026, 9, 15))
+                .mode(InterviewMode.ONLINE)
+                .slots(List.of(
+                        SendBookingLinkRequestDto.SlotItemDto.builder()
+                                .slotDate(LocalDate.of(2026, 9, 10))
+                                .slotTime(LocalTime.of(9, 0))
+                                .durationMinutes(45)
+                                .build()
+                ))
+                .build();
+
+        BookingRequestResponseDto response = interviewService.sendBookingLink(appId, request, recruiterUser);
+
+        assertThat(response).isNotNull();
+        assertThat(app.getCurrentStage()).isEqualTo(targetStage);
+        verify(applicationRepository).save(app);
+        verify(applicationStageHistoryRepository).save(any(ApplicationStageHistory.class));
+    }
+
+    @Test
+    @DisplayName("UC-25: Fails when interviewer already has a conflict at the specified slot time")
+    void sendBookingLink_interviewerConflict_throwsBusinessConflictException() {
+        UUID appId = UUID.randomUUID();
+        PipelineTemplate template = PipelineTemplate.builder().id(1L).build();
+        PipelineStage stage = PipelineStage.builder()
+                .id(10L)
+                .name("Screening")
+                .stageType(StageType.SCREENING)
+                .pipelineTemplate(template)
+                .terminal(false)
+                .active(true)
+                .build();
+        Candidate candidate = Candidate.builder().fullName("Candidate").primaryEmail("c@gmail.com").build();
+        JobPosition job = JobPosition.builder().title("Dev").pipelineTemplate(template).build();
+        Application app = Application.builder().id(appId).candidate(candidate).jobPosition(job).currentStage(stage).build();
+
+        User interviewer = User.builder().id(20L).fullName("Interviewer").status(UserStatus.ACTIVE).build();
+
+        when(applicationRepository.findById(appId)).thenReturn(Optional.of(app));
+        when(userRepository.findById(20L)).thenReturn(Optional.of(interviewer));
+        when(userRepository.getReferenceById(100L)).thenReturn(User.builder().id(100L).build());
+        when(interviewBookingRequestRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        SendBookingLinkRequestDto request = SendBookingLinkRequestDto.builder()
+                .interviewerId(20L)
+                .dateRangeStart(LocalDate.of(2026, 9, 10))
+                .dateRangeEnd(LocalDate.of(2026, 9, 15))
+                .mode(InterviewMode.ONLINE)
+                .slots(List.of(
+                        SendBookingLinkRequestDto.SlotItemDto.builder()
+                                .slotDate(LocalDate.of(2026, 9, 10))
+                                .slotTime(LocalTime.of(9, 0))
+                                .build()
+                ))
+                .build();
+
+        BookingRequestResponseDto resp = interviewService.sendBookingLink(appId, request, recruiterUser);
+
+        assertThat(resp).isNotNull();
+        assertThat(resp.getTotalSlots()).isEqualTo(1);
+        verify(interviewBookingSlotRepository).save(any());
+    }
+
+    @Test
+    @DisplayName("UC-25: getInterviewerBusySlots returns busy slots successfully")
+    void getInterviewerBusySlots_returnsSlots() {
+        LocalDate start = LocalDate.of(2026, 9, 10);
+        LocalDate end = LocalDate.of(2026, 9, 14);
+        com.hirewise.be.dto.response.InterviewerBusySlotDto slot = com.hirewise.be.dto.response.InterviewerBusySlotDto.builder()
+                .date(start)
+                .time(LocalTime.of(9, 0))
+                .build();
+
+        when(interviewParticipantRepository.findBusySlotsByInterviewer(eq(20L), eq(start), eq(end), eq(InterviewStatus.CANCELLED)))
+                .thenReturn(List.of(slot));
+
+        List<com.hirewise.be.dto.response.InterviewerBusySlotDto> result =
+                interviewService.getInterviewerBusySlots(20L, start, end, recruiterUser);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getDate()).isEqualTo(start);
+        assertThat(result.get(0).getTime()).isEqualTo(LocalTime.of(9, 0));
+    }
+
 }
