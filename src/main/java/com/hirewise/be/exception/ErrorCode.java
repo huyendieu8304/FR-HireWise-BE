@@ -189,6 +189,14 @@ public enum ErrorCode {
     /** UC-14/15 hard gate: at least 1 INTERVIEW-type Stage of the Job's pipeline has no Scorecard configured. */
     JOB_APPROVAL_SCORECARD_MISSING("error.job_approval_scorecard_missing"),
 
+    // UC-42/UC-43 Reporting dashboards (module M20)
+    /**
+     * The workbook could not be serialised. Note that ME-37 - "no data matches
+     * the filter" - is deliberately NOT an error code: an empty report is a
+     * successful 200 that the front end renders as an empty state.
+     */
+    REPORT_EXPORT_FAILED("error.report_export_failed"),
+
     ;
 
     private final String key;
