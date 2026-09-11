@@ -374,7 +374,20 @@ public class ScorecardSubmissionService {
                         ErrorCode.JOB_STAGE_SCORECARD_NOT_FOUND, interview.getPipelineStage().getId()));
     }
 
-    /** UC-28 precondition: caller must be an assigned Interviewer of this Interview, or the Job's Hiring Manager. */
+    /**
+     * UC-28 precondition: caller must be an assigned Interviewer of this
+     * Interview, or a Hiring Manager whose Access Scope covers this Job.
+     * <p>
+     * Deliberately NOT {@code job.getHiringManager()} - per
+     * {@code guides/04-DATABASE_DESIGN.md} section 13, that column is a dead
+     * field nothing ever writes to. "Is the caller acting as this Job's
+     * Hiring Manager" only needs {@code currentUser.hasRole("HIRING_MANAGER")}
+     * here: the {@code checkAccess} call right above already ran the Layer 3
+     * Access Scope check (throws if the caller's scope does not cover this
+     * Job) - by the time it returns, we already know the caller's scope
+     * covers the Job, so the only question left is which role got them
+     * through the Layer 2 permission check.
+     */
     private void checkEvaluatorEligible(Interview interview, JobPosition job, CurrentUser currentUser) {
         Long departmentId = job.getDepartment() != null ? job.getDepartment().getId() : null;
         accessControlService.checkAccess(currentUser, PermissionCodes.SCORECARD_SUBMIT,
@@ -382,8 +395,7 @@ public class ScorecardSubmissionService {
 
         boolean isParticipant = interviewParticipantRepository
                 .existsByInterview_IdAndInterviewer_Id(interview.getId(), currentUser.userId());
-        boolean isHiringManager = job.getHiringManager() != null
-                && job.getHiringManager().getId().equals(currentUser.userId());
+        boolean isHiringManager = currentUser.hasRole("HIRING_MANAGER");
         if (!isParticipant && !isHiringManager) {
             throw new ForbiddenActionException(ErrorCode.SCORECARD_NOT_AN_EVALUATOR);
         }
@@ -410,8 +422,9 @@ public class ScorecardSubmissionService {
         }
         boolean isParticipant = interviewParticipantRepository
                 .existsByInterview_IdAndInterviewer_Id(interview.getId(), currentUser.userId());
-        boolean isHiringManager = job.getHiringManager() != null
-                && job.getHiringManager().getId().equals(currentUser.userId());
+        // Same reasoning as checkEvaluatorEligible: the try block above already
+        // confirmed Access Scope covers this Job, so a role check is enough here.
+        boolean isHiringManager = currentUser.hasRole("HIRING_MANAGER");
         return isParticipant || isHiringManager;
     }
 

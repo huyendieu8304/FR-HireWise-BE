@@ -2,6 +2,7 @@ package com.hirewise.be.service;
 
 import com.hirewise.be.authorization.AccessControlService;
 import com.hirewise.be.authorization.AccessScopeService;
+import com.hirewise.be.authorization.HiringManagerResolver;
 import com.hirewise.be.authorization.PermissionCodes;
 import com.hirewise.be.authorization.ResourceContext;
 import com.hirewise.be.domain.Department;
@@ -16,6 +17,7 @@ import com.hirewise.be.domain.UserAccessScope;
 import com.hirewise.be.dto.PagedResponseDto;
 import com.hirewise.be.dto.request.JobPositionRequestDto;
 import com.hirewise.be.dto.request.SubmitJobRequestDto;
+import com.hirewise.be.dto.response.HiringManagerOptionDto;
 import com.hirewise.be.dto.response.JobDetailResponseDto;
 import com.hirewise.be.dto.response.JobSummaryResponseDto;
 import com.hirewise.be.event.OutboxEventPublisher;
@@ -82,6 +84,7 @@ public class JobService {
     UserRepository userRepository;
     AccessControlService accessControlService;
     AccessScopeService accessScopeService;
+    HiringManagerResolver hiringManagerResolver;
     OutboxEventPublisher outboxEventPublisher;
     Clock clock;
 
@@ -159,6 +162,23 @@ public class JobService {
     }
 
     /**
+     * UC-12: every active Hiring Manager, for the "chọn Hiring Manager"
+     * dropdown on the Job create/edit form - mirrors
+     * {@code InterviewService#getAvailableInterviewers}'s identical
+     * "list active users holding role X" pattern (not filtered by
+     * department, same reasoning: the Recruiter is trusted to pick
+     * sensibly, just like when assigning an Interviewer).
+     *
+     * @param currentUser authenticated caller, must have {@code JOB_CREATE}
+     * @return every active Hiring Manager
+     */
+    public List<HiringManagerOptionDto> getAvailableHiringManagers(CurrentUser currentUser) {
+        accessControlService.checkAccess(currentUser, PermissionCodes.JOB_CREATE, ResourceContext.none());
+        List<User> hiringManagers = userRepository.findActiveUsersByRoleCode("HIRING_MANAGER", Instant.now(clock));
+        return hiringManagers.stream().map(JobMapper::toHiringManagerOptionDto).toList();
+    }
+
+    /**
      * UC-12 normal flow: creates a new Job Position in {@code DRAFT} status,
      * self-assigned to the calling Recruiter. Only the fields the Screen
      * Description marks "Bắt buộc" for saving a Draft are enforced here
@@ -184,6 +204,7 @@ public class JobService {
         Department department = findDepartmentOrThrow(request.getDepartmentId());
         validateSalaryRange(request.getSalaryMin(), request.getSalaryMax());
         validateDeadlineInFuture(request.getApplicationDeadline());
+        User hiringManager = resolveHiringManagerOrNull(request.getHiringManagerId());
 
         Instant now = Instant.now(clock);
         User recruiter = userRepository.getReferenceById(currentUser.userId());
@@ -204,6 +225,7 @@ public class JobService {
                 .status(JobStatus.DRAFT)
                 .createdByUserId(currentUser.userId())
                 .recruiter(recruiter)
+                .hiringManager(hiringManager)
                 .createdAt(now)
                 .updatedAt(now)
                 .build();
@@ -257,6 +279,7 @@ public class JobService {
         Department department = findDepartmentOrThrow(request.getDepartmentId());
         validateSalaryRange(request.getSalaryMin(), request.getSalaryMax());
         validateDeadlineInFuture(request.getApplicationDeadline());
+        User hiringManager = resolveHiringManagerOrNull(request.getHiringManagerId());
 
         job.setTitle(request.getTitle());
         job.setDepartment(department);
@@ -269,6 +292,7 @@ public class JobService {
         job.setDescription(request.getDescription());
         job.setRequirements(request.getRequirements());
         job.setBenefits(request.getBenefits());
+        job.setHiringManager(hiringManager);
         job.setUpdatedAt(Instant.now(clock));
         jobPositionRepository.save(job);
 
@@ -354,20 +378,13 @@ public class JobService {
      * Manager currently in scope".
      */
     private void notifyHiringManagers(JobPosition job) {
-        Instant now = Instant.now(clock);
-        List<Long> hiringManagerIds = userRoleRepository.findActiveUserIdsByRoleCode("HIRING_MANAGER", now);
-        if (hiringManagerIds.isEmpty()) {
-            log.warn("UC-13: no active Hiring Manager account exists — job {} has no one to notify", job.getId());
-            return;
-        }
-
-        Long departmentId = job.getDepartment() != null ? job.getDepartment().getId() : null;
-        ResourceContext jobResource = ResourceContext.department(departmentId);
         // requiresWrite=true: matches the exact scope check JOB_APPROVE itself uses (only a
         // Hiring Manager who could actually act on this job is worth notifying about it).
-        List<User> hiringManagers = userRepository.findAllById(hiringManagerIds).stream()
-                .filter(user -> accessScopeService.isWithinScope(user.getId(), jobResource, true))
-                .toList();
+        List<User> hiringManagers = hiringManagerResolver.resolveForJob(job, true);
+        if (hiringManagers.isEmpty()) {
+            log.warn("UC-13: no Hiring Manager's Access Scope covers job {} — no one to notify", job.getId());
+            return;
+        }
 
         String recruiterName = job.getRecruiter() != null ? job.getRecruiter().getFullName() : null;
         for (User hiringManager : hiringManagers) {
@@ -399,6 +416,34 @@ public class JobService {
     private Department findDepartmentOrThrow(Long departmentId) {
         return departmentRepository.findById(departmentId)
                 .orElseThrow(() -> new ResourceNotFoundException(ErrorCode.DEPARTMENT_NOT_FOUND, departmentId));
+    }
+
+    /**
+     * UC-12: resolves the Hiring Manager a Recruiter picked for this Job -
+     * {@code null} means "not decided yet", always allowed. When an id IS
+     * given, it must reference a real, active HIRING_MANAGER - a Bean
+     * Validation annotation cannot check this (DB-backed role membership),
+     * so it is enforced here instead.
+     *
+     * @param hiringManagerId id from the request, or {@code null}
+     * @return the resolved user, or {@code null}
+     * @throws ResourceNotFoundException if no user exists with this id
+     * @throws BadRequestException       if the user exists but does not hold HIRING_MANAGER
+     */
+    private User resolveHiringManagerOrNull(Long hiringManagerId) {
+        if (hiringManagerId == null) {
+            return null;
+        }
+        User user = userRepository.findById(hiringManagerId)
+                .orElseThrow(() -> new ResourceNotFoundException(ErrorCode.HIRING_MANAGER_NOT_FOUND, hiringManagerId));
+
+        Instant now = Instant.now(clock);
+        boolean isHiringManager = userRoleRepository.findActiveUserIdsByRoleCode("HIRING_MANAGER", now)
+                .contains(hiringManagerId);
+        if (!isHiringManager) {
+            throw new BadRequestException(ErrorCode.USER_NOT_A_HIRING_MANAGER);
+        }
+        return user;
     }
 
     /** Same DEPARTMENT-scope resolution as {@code JobApprovalService#resolveDepartmentIds}. */

@@ -7,6 +7,7 @@ import com.hirewise.be.dto.PagedResponseDto;
 import com.hirewise.be.dto.request.JobLifecycleRequestDto;
 import com.hirewise.be.dto.request.JobPositionRequestDto;
 import com.hirewise.be.dto.request.SubmitJobRequestDto;
+import com.hirewise.be.dto.response.HiringManagerOptionDto;
 import com.hirewise.be.dto.response.JobDetailResponseDto;
 import com.hirewise.be.dto.response.JobSummaryResponseDto;
 import com.hirewise.be.security.CurrentUser;
@@ -31,6 +32,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -44,6 +46,7 @@ import java.util.UUID;
  * RBAC per endpoint:
  * <ul>
  *   <li>{@code GET   /api/jobs}            - {@code JOB_VIEW}, scoped to the caller's departments; supports {@code keyword} search on title</li>
+ *   <li>{@code GET   /api/jobs/hiring-managers} - {@code JOB_CREATE}; every active Hiring Manager, for the Job form's picker</li>
  *   <li>{@code GET   /api/jobs/{jobId}}    - {@code JOB_VIEW}, scoped to the job's department</li>
  *   <li>{@code POST  /api/jobs}            - {@code JOB_CREATE}, scoped to the target department</li>
  *   <li>{@code PATCH /api/jobs/{jobId}}    - {@code JOB_EDIT}, scoped to the job's department; only while Draft/Rejected</li>
@@ -82,6 +85,19 @@ public class JobController {
             @CurrentUserPrincipal CurrentUser currentUser) {
         Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
         return ResponseEntity.ok(jobService.listJobs(currentUser, departmentId, status, keyword, pageable));
+    }
+
+    /**
+     * UC-12: every active Hiring Manager, for the "chọn Hiring Manager"
+     * dropdown on the Job create/edit form. Requires {@code JOB_CREATE}.
+     *
+     * @param currentUser authenticated caller, used for authorization
+     * @return every active Hiring Manager
+     */
+    @GetMapping("/hiring-managers")
+    public ResponseEntity<List<HiringManagerOptionDto>> listHiringManagers(
+            @CurrentUserPrincipal CurrentUser currentUser) {
+        return ResponseEntity.ok(jobService.getAvailableHiringManagers(currentUser));
     }
 
     /**

@@ -22,9 +22,17 @@ import java.util.stream.Collectors;
 /**
  * US-MGR-05 (UC-41, SLA Monitoring): sweeps for Applications past their
  * Stage's SLA that have not yet triggered an alert email, and sends one EM-13
- * per (Job, Stage) group to that Job's Hiring Manager - grouped, not one
- * email per candidate, so a Stage stuck with 5 overdue candidates produces 1
- * email listing all 5 rather than flooding the inbox.
+ * per (Job, Stage) group to that Job's Recruiter (team decision: the
+ * Recruiter runs the Job day-to-day and is who should be nudged to
+ * intervene; Hiring Manager only needs the Dashboard widget - see
+ * {@code SlaMonitoringService#getSlaAlerts}) - grouped, not one email per
+ * candidate, so a Stage stuck with 5 overdue candidates produces 1 email
+ * listing all 5 rather than flooding the inbox.
+ * <p>
+ * {@link JobPosition#getRecruiter()} is always set (every Job is created
+ * by exactly one Recruiter, see {@code JobService#createJob}) - unlike
+ * {@link JobPosition#getHiringManager()}, no Access Scope resolution is
+ * needed here, just 1 direct recipient per group.
  * <p>
  * Idempotent per stage-dwell via {@link Application#getSlaAlertSentAt()} -
  * every stage-transition call site resets it to {@code null} (see that
@@ -89,15 +97,18 @@ public class SlaBreachWorker {
     }
 
     /**
-     * Enqueues 1 EM-13 email for 1 (Job, Stage) group. A Job with no Hiring
-     * Manager assigned has nobody to alert - logged and skipped rather than
-     * failing the whole sweep over 1 misconfigured Job.
+     * Enqueues 1 EM-13 email for 1 (Job, Stage) group, sent to the Job's
+     * Recruiter. A Job somehow missing a Recruiter (legacy/edge-case data -
+     * {@code JobService#createJob} always sets one for every real Job) has
+     * nobody to alert - logged and skipped rather than failing the whole
+     * sweep over 1 row.
      */
     private void sendGroupAlert(List<SlaMonitoringService.Breach> group) {
         JobPosition job = group.get(0).application().getJobPosition();
-        User manager = job.getHiringManager();
-        if (manager == null) {
-            log.warn("Job {} co Application vuot SLA nhung chua co Hiring Manager de canh bao", job.getId());
+        User recruiter = job.getRecruiter();
+        if (recruiter == null || recruiter.getEmail() == null) {
+            log.warn("Job {} co Application vuot SLA nhung khong co Recruiter (hoac thieu email) de canh bao",
+                    job.getId());
             return;
         }
 
@@ -107,8 +118,8 @@ public class SlaBreachWorker {
                 .collect(Collectors.joining("<br/>"));
 
         Map<String, Object> payload = new HashMap<>();
-        payload.put("email", manager.getEmail());
-        payload.put("managerName", manager.getFullName());
+        payload.put("email", recruiter.getEmail());
+        payload.put("recruiterName", recruiter.getFullName());
         payload.put("n", group.size());
         payload.put("stageName", group.get(0).stage().getName());
         payload.put("jobTitle", job.getTitle());

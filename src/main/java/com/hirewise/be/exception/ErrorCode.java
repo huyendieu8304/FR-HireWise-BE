@@ -46,6 +46,8 @@ public enum ErrorCode {
     PIPELINE_TEMPLATE_NOT_FOUND("error.pipeline_template_not_found"),
     PIPELINE_STAGE_CODE_ALREADY_EXISTS("error.pipeline_stage_code_already_exists"),
     PIPELINE_STAGE_NOT_FOUND("error.pipeline_stage_not_found"),
+    /** UC-40 team decision: an ACTIVE template's Stage structure (incl. SLA) is frozen. */
+    PIPELINE_TEMPLATE_NOT_EDITABLE("error.pipeline_template_not_editable"),
 
     // UC-05 Reorder Pipeline Stages
     PIPELINE_STAGE_REORDER_MISMATCH("error.pipeline_stage_reorder_mismatch"),
@@ -70,6 +72,10 @@ public enum ErrorCode {
     JOB_SALARY_RANGE_INVALID("error.job_salary_range_invalid"),
     JOB_DEADLINE_IN_PAST("error.job_deadline_in_past"),
     JOB_POSITION_NOT_EDITABLE("error.job_position_not_editable"),
+    /** UC-12: Recruiter picked a {@code hiringManagerId} that doesn't correspond to any user. */
+    HIRING_MANAGER_NOT_FOUND("error.hiring_manager_not_found"),
+    /** UC-12: the picked user exists but doesn't hold the HIRING_MANAGER role. */
+    USER_NOT_A_HIRING_MANAGER("error.user_not_a_hiring_manager"),
 
     // UC-04 (prerequisite added for UC-13): activate a Pipeline Template (BR-PIPE-01/ME-11)
     PIPELINE_TEMPLATE_NOT_READY_TO_ACTIVATE("error.pipeline_template_not_ready_to_activate"),

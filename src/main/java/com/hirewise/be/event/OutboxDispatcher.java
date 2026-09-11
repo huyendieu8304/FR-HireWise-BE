@@ -216,7 +216,7 @@ public class OutboxDispatcher {
                 // JOB_SHARE_SUMMARY_EMAIL's Channel_Status_List above.
                 case SLA_BREACH_ALERT_EMAIL -> {
                     java.util.Map<String, String> vars = new java.util.HashMap<>();
-                    vars.put("Manager_Name", payload.path("managerName").asText(""));
+                    vars.put("Recruiter_Name", payload.path("recruiterName").asText(""));
                     vars.put("n", payload.path("n").asText("0"));
                     vars.put("Stage_Name", payload.path("stageName").asText(""));
                     vars.put("Job_Title", payload.path("jobTitle").asText(""));

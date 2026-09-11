@@ -34,8 +34,11 @@ import static org.mockito.Mockito.when;
 
 /**
  * US-MGR-05 (UC-41, SLA Monitoring): {@link SlaBreachWorker}'s grouping,
- * idempotency and Hiring-Manager-missing edge case. {@link SlaMonitoringService}
- * itself is mocked here - its own breach-detection logic is
+ * idempotency, and recipient resolution. Team decision: the alert goes to
+ * the Job's Recruiter (always set, see {@code JobService#createJob}), not
+ * its Hiring Manager - no Access Scope resolution needed here, unlike
+ * {@code JobService#notifyHiringManagers} (UC-13). {@link SlaMonitoringService}
+ * is mocked - its own breach-detection logic is
  * {@link SlaMonitoringServiceTest}'s job.
  */
 @ExtendWith(MockitoExtension.class)
@@ -61,8 +64,8 @@ class SlaBreachWorkerTest {
                 .terminal(false).active(true).slaHours(24).build();
     }
 
-    private JobPosition jobWithManager(UUID id, User manager) {
-        return JobPosition.builder().id(id).title("Backend Engineer").hiringManager(manager).build();
+    private JobPosition jobWithRecruiter(UUID id, User recruiter) {
+        return JobPosition.builder().id(id).title("Backend Engineer").recruiter(recruiter).build();
     }
 
     private Application breachingApplication(JobPosition job, PipelineStage stage, String candidateName,
@@ -86,8 +89,8 @@ class SlaBreachWorkerTest {
 
     @Test
     void sendBreachAlerts_alreadyAlertedForThisDwell_skipped() {
-        User manager = User.builder().id(1L).email("hm@test.com").fullName("Hiring Manager").build();
-        JobPosition job = jobWithManager(UUID.randomUUID(), manager);
+        User recruiter = User.builder().id(1L).email("rec@test.com").fullName("Recruiter").build();
+        JobPosition job = jobWithRecruiter(UUID.randomUUID(), recruiter);
         PipelineStage stage = stage(10L, "Phong van");
         Application alreadyAlerted = breachingApplication(job, stage, "Ung vien A", NOW.minusSeconds(3600));
         when(slaMonitoringService.findAllCurrentBreaches())
@@ -100,10 +103,9 @@ class SlaBreachWorkerTest {
     }
 
     @Test
-    void sendBreachAlerts_groupsByJobAndStage_sendsOneEmailPerGroupWithCorrectPayload() {
-        User manager = User.builder().id(1L).email("hm@test.com").fullName("Hiring Manager").build();
-        UUID jobId = UUID.randomUUID();
-        JobPosition job = jobWithManager(jobId, manager);
+    void sendBreachAlerts_groupsByJobAndStage_sendsOneEmailToRecruiterWithCorrectPayload() {
+        User recruiter = User.builder().id(1L).email("rec@test.com").fullName("Recruiter One").build();
+        JobPosition job = jobWithRecruiter(UUID.randomUUID(), recruiter);
         PipelineStage stage = stage(10L, "Phong van chuyen mon");
         Application candidateA = breachingApplication(job, stage, "Nguyen Van A", null);
         Application candidateB = breachingApplication(job, stage, "Tran Thi B", null);
@@ -118,8 +120,8 @@ class SlaBreachWorkerTest {
         verify(outboxEventPublisher, times(1))
                 .publish(eq(OutboxEventType.SLA_BREACH_ALERT_EMAIL), payloadCaptor.capture());
         Map<String, Object> payload = payloadCaptor.getValue();
-        assertThat(payload).containsEntry("email", "hm@test.com");
-        assertThat(payload).containsEntry("managerName", "Hiring Manager");
+        assertThat(payload).containsEntry("email", "rec@test.com");
+        assertThat(payload).containsEntry("recruiterName", "Recruiter One");
         assertThat(payload).containsEntry("n", 2);
         assertThat(payload).containsEntry("stageName", "Phong van chuyen mon");
         assertThat(payload).containsEntry("jobTitle", "Backend Engineer");
@@ -130,8 +132,8 @@ class SlaBreachWorkerTest {
 
     @Test
     void sendBreachAlerts_marksEveryBreachingApplicationAlerted() {
-        User manager = User.builder().id(1L).email("hm@test.com").fullName("HM").build();
-        JobPosition job = jobWithManager(UUID.randomUUID(), manager);
+        User recruiter = User.builder().id(1L).email("rec@test.com").fullName("Recruiter").build();
+        JobPosition job = jobWithRecruiter(UUID.randomUUID(), recruiter);
         PipelineStage stage = stage(10L, "Phong van");
         Application candidateA = breachingApplication(job, stage, "A", null);
         when(slaMonitoringService.findAllCurrentBreaches())
@@ -144,23 +146,38 @@ class SlaBreachWorkerTest {
     }
 
     @Test
-    void sendBreachAlerts_jobWithNoHiringManager_skipsThatGroupButStillAlertsOthers() {
-        JobPosition jobWithoutManager = JobPosition.builder().id(UUID.randomUUID()).title("No Manager Job").build();
-        User manager = User.builder().id(2L).email("hm2@test.com").fullName("HM Two").build();
-        JobPosition jobWithManager = jobWithManager(UUID.randomUUID(), manager);
+    void sendBreachAlerts_jobWithNoRecruiter_skipsThatGroupButStillAlertsOthers() {
+        JobPosition jobWithoutRecruiter = jobWithRecruiter(UUID.randomUUID(), null);
+        User recruiter = User.builder().id(2L).email("rec2@test.com").fullName("Recruiter Two").build();
+        JobPosition jobWithRecruiter = jobWithRecruiter(UUID.randomUUID(), recruiter);
         PipelineStage stage = stage(10L, "Phong van");
-        Application unmanaged = breachingApplication(jobWithoutManager, stage, "Unmanaged Candidate", null);
-        Application managed = breachingApplication(jobWithManager, stage, "Managed Candidate", null);
+        Application unmanaged = breachingApplication(jobWithoutRecruiter, stage, "Unmanaged Candidate", null);
+        Application managed = breachingApplication(jobWithRecruiter, stage, "Managed Candidate", null);
         when(slaMonitoringService.findAllCurrentBreaches()).thenReturn(List.of(
                 new SlaMonitoringService.Breach(unmanaged, stage, 30L),
                 new SlaMonitoringService.Breach(managed, stage, 30L)));
 
         worker.sendBreachAlerts();
 
-        // Only 1 email (for the managed Job) - the unmanaged group has nobody to send to.
+        // Only 1 email (for the Job with a Recruiter) - the other group has nobody to send to.
         verify(outboxEventPublisher, times(1)).publish(any(), any());
         // Both Applications are still marked alerted either way - re-polling forever for a
-        // Job that will never have anyone to notify would be pointless noise.
+        // Job that will never have a Recruiter to notify would be pointless noise.
         verify(applicationRepository).saveAll(List.of(unmanaged, managed));
+    }
+
+    @Test
+    void sendBreachAlerts_recruiterMissingEmail_skipsThatGroup() {
+        User recruiterWithoutEmail = User.builder().id(1L).fullName("No Email").build();
+        JobPosition job = jobWithRecruiter(UUID.randomUUID(), recruiterWithoutEmail);
+        PipelineStage stage = stage(10L, "Phong van");
+        Application application = breachingApplication(job, stage, "Ung vien A", null);
+        when(slaMonitoringService.findAllCurrentBreaches())
+                .thenReturn(List.of(new SlaMonitoringService.Breach(application, stage, 30L)));
+
+        worker.sendBreachAlerts();
+
+        verify(outboxEventPublisher, never()).publish(any(), any());
+        verify(applicationRepository).saveAll(List.of(application));
     }
 }

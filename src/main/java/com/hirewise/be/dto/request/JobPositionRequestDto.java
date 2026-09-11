@@ -61,4 +61,15 @@ public class JobPositionRequestDto {
 
     /** JD block 3/3 - "Quyền lợi". */
     private String benefits;
+
+    /**
+     * Optional - the Hiring Manager this Job is being opened for, picked by
+     * the Recruiter from {@code GET /api/jobs/hiring-managers}. {@code null}
+     * = not yet decided (can always be set/changed later while still Draft/
+     * Rejected). Must reference an active user actually holding the
+     * {@code HIRING_MANAGER} role (validated in {@code JobService}, not
+     * here - a Bean Validation annotation cannot check DB-backed role
+     * membership).
+     */
+    private Long hiringManagerId;
 }

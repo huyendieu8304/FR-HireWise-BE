@@ -2,6 +2,7 @@ package com.hirewise.be.service;
 
 import com.hirewise.be.authorization.AccessControlService;
 import com.hirewise.be.authorization.AccessScopeService;
+import com.hirewise.be.authorization.HiringManagerResolver;
 import com.hirewise.be.authorization.PermissionCodes;
 import com.hirewise.be.authorization.ResourceContext;
 import com.hirewise.be.domain.Department;
@@ -14,6 +15,7 @@ import com.hirewise.be.domain.PipelineTemplateStatus;
 import com.hirewise.be.domain.User;
 import com.hirewise.be.dto.request.JobPositionRequestDto;
 import com.hirewise.be.dto.request.SubmitJobRequestDto;
+import com.hirewise.be.dto.response.HiringManagerOptionDto;
 import com.hirewise.be.dto.response.JobDetailResponseDto;
 import com.hirewise.be.event.OutboxEventPublisher;
 import com.hirewise.be.exception.BadRequestException;
@@ -85,6 +87,8 @@ class JobServiceTest {
     @Mock
     private AccessScopeService accessScopeService;
     @Mock
+    private HiringManagerResolver hiringManagerResolver;
+    @Mock
     private OutboxEventPublisher outboxEventPublisher;
 
     private JobService jobService;
@@ -95,7 +99,7 @@ class JobServiceTest {
         Clock fixedClock = Clock.fixed(NOW, ZoneOffset.UTC);
         jobService = new JobService(jobPositionRepository, jobApprovalRepository, pipelineTemplateRepository,
                 userAccessScopeRepository, userRoleRepository, departmentRepository, userRepository,
-                accessControlService, accessScopeService, outboxEventPublisher, fixedClock);
+                accessControlService, accessScopeService, hiringManagerResolver, outboxEventPublisher, fixedClock);
         recruiter = new CurrentUser(7L, "recruiter@hirewise.com", "Recruiter One", Set.of("RECRUITER"));
     }
 
@@ -104,7 +108,7 @@ class JobServiceTest {
                 "Backend Engineer", DEPARTMENT_ID, EmploymentType.FULL_TIME,
                 new BigDecimal("1000"), new BigDecimal("2000"), 2,
                 LocalDate.parse("2026-12-31"), "Ho Chi Minh",
-                "Build APIs", "3 years experience", "13th month salary");
+                "Build APIs", "3 years experience", "13th month salary", null);
     }
 
     private JobPosition draftJob(JobStatus status, Long departmentId) {
@@ -291,6 +295,126 @@ class JobServiceTest {
     }
 
     // -------------------------------------------------------------------
+    // UC-12: Recruiter picks a Hiring Manager for the Job (redesign - see
+    // explain/11-*.md - no longer auto-assigned at Approve time).
+    // -------------------------------------------------------------------
+
+    private static final Long HIRING_MANAGER_ID = 30L;
+
+    private User activeHiringManager() {
+        return User.builder().id(HIRING_MANAGER_ID).fullName("Hiring Manager One").email("hm@hirewise.com").build();
+    }
+
+    @Test
+    void createJob_withValidHiringManagerId_setsHiringManager() {
+        when(departmentRepository.findById(DEPARTMENT_ID))
+                .thenReturn(Optional.of(Department.builder().id(DEPARTMENT_ID).build()));
+        when(userRepository.getReferenceById(recruiter.userId()))
+                .thenReturn(User.builder().id(recruiter.userId()).fullName("Recruiter One").build());
+        when(userRepository.findById(HIRING_MANAGER_ID)).thenReturn(Optional.of(activeHiringManager()));
+        when(userRoleRepository.findActiveUserIdsByRoleCode(eq("HIRING_MANAGER"), any()))
+                .thenReturn(List.of(HIRING_MANAGER_ID));
+        JobPositionRequestDto request = validRequest();
+        request.setHiringManagerId(HIRING_MANAGER_ID);
+
+        JobDetailResponseDto response = jobService.createJob(request, recruiter);
+
+        assertThat(response.getHiringManagerId()).isEqualTo(HIRING_MANAGER_ID);
+        assertThat(response.getHiringManagerName()).isEqualTo("Hiring Manager One");
+        ArgumentCaptor<JobPosition> captor = ArgumentCaptor.forClass(JobPosition.class);
+        verify(jobPositionRepository).save(captor.capture());
+        assertThat(captor.getValue().getHiringManager().getId()).isEqualTo(HIRING_MANAGER_ID);
+    }
+
+    @Test
+    void createJob_hiringManagerIdNotFound_throwsResourceNotFound() {
+        when(departmentRepository.findById(DEPARTMENT_ID))
+                .thenReturn(Optional.of(Department.builder().id(DEPARTMENT_ID).build()));
+        when(userRepository.findById(HIRING_MANAGER_ID)).thenReturn(Optional.empty());
+        JobPositionRequestDto request = validRequest();
+        request.setHiringManagerId(HIRING_MANAGER_ID);
+
+        assertThatThrownBy(() -> jobService.createJob(request, recruiter))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.HIRING_MANAGER_NOT_FOUND);
+        verify(jobPositionRepository, never()).save(any());
+    }
+
+    @Test
+    void createJob_selectedUserNotAHiringManager_throwsBadRequest() {
+        when(departmentRepository.findById(DEPARTMENT_ID))
+                .thenReturn(Optional.of(Department.builder().id(DEPARTMENT_ID).build()));
+        // User exists (vd 1 Recruiter khac) nhung khong giu role HIRING_MANAGER.
+        when(userRepository.findById(HIRING_MANAGER_ID))
+                .thenReturn(Optional.of(User.builder().id(HIRING_MANAGER_ID).fullName("Not A Manager").build()));
+        when(userRoleRepository.findActiveUserIdsByRoleCode(eq("HIRING_MANAGER"), any())).thenReturn(List.of());
+        JobPositionRequestDto request = validRequest();
+        request.setHiringManagerId(HIRING_MANAGER_ID);
+
+        assertThatThrownBy(() -> jobService.createJob(request, recruiter))
+                .isInstanceOf(BadRequestException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.USER_NOT_A_HIRING_MANAGER);
+        verify(jobPositionRepository, never()).save(any());
+    }
+
+    @Test
+    void createJob_noHiringManagerPicked_leavesFieldNull() {
+        when(departmentRepository.findById(DEPARTMENT_ID))
+                .thenReturn(Optional.of(Department.builder().id(DEPARTMENT_ID).build()));
+        when(userRepository.getReferenceById(recruiter.userId()))
+                .thenReturn(User.builder().id(recruiter.userId()).fullName("Recruiter One").build());
+
+        JobDetailResponseDto response = jobService.createJob(validRequest(), recruiter);
+
+        assertThat(response.getHiringManagerId()).isNull();
+        assertThat(response.getHiringManagerName()).isNull();
+        verify(userRepository, never()).findById(any());
+    }
+
+    @Test
+    void updateDraftJob_changesHiringManager() {
+        when(jobPositionRepository.findById(JOB_ID))
+                .thenReturn(Optional.of(draftJob(JobStatus.DRAFT, DEPARTMENT_ID)));
+        when(departmentRepository.findById(DEPARTMENT_ID))
+                .thenReturn(Optional.of(Department.builder().id(DEPARTMENT_ID).build()));
+        when(userRepository.findById(HIRING_MANAGER_ID)).thenReturn(Optional.of(activeHiringManager()));
+        when(userRoleRepository.findActiveUserIdsByRoleCode(eq("HIRING_MANAGER"), any()))
+                .thenReturn(List.of(HIRING_MANAGER_ID));
+        JobPositionRequestDto request = validRequest();
+        request.setHiringManagerId(HIRING_MANAGER_ID);
+
+        JobDetailResponseDto response = jobService.updateDraftJob(JOB_ID, request, recruiter);
+
+        assertThat(response.getHiringManagerId()).isEqualTo(HIRING_MANAGER_ID);
+    }
+
+    @Test
+    void updateDraftJob_clearsHiringManager() {
+        JobPosition existingJob = draftJob(JobStatus.DRAFT, DEPARTMENT_ID);
+        existingJob.setHiringManager(activeHiringManager());
+        when(jobPositionRepository.findById(JOB_ID)).thenReturn(Optional.of(existingJob));
+        when(departmentRepository.findById(DEPARTMENT_ID))
+                .thenReturn(Optional.of(Department.builder().id(DEPARTMENT_ID).build()));
+
+        JobDetailResponseDto response = jobService.updateDraftJob(JOB_ID, validRequest(), recruiter);
+
+        assertThat(response.getHiringManagerId()).isNull();
+    }
+
+    @Test
+    void getAvailableHiringManagers_returnsEveryActiveHiringManager() {
+        User managerA = User.builder().id(1L).fullName("HM A").email("a@test.com").build();
+        User managerB = User.builder().id(2L).fullName("HM B").email("b@test.com").build();
+        when(userRepository.findActiveUsersByRoleCode(eq("HIRING_MANAGER"), any()))
+                .thenReturn(List.of(managerA, managerB));
+
+        List<HiringManagerOptionDto> result = jobService.getAvailableHiringManagers(recruiter);
+
+        assertThat(result).extracting(HiringManagerOptionDto::getFullName).containsExactly("HM A", "HM B");
+        verify(accessControlService).checkAccess(recruiter, PermissionCodes.JOB_CREATE, ResourceContext.none());
+    }
+
+    // -------------------------------------------------------------------
     // UC-13: attach Pipeline Template + submit for approval
     // -------------------------------------------------------------------
 
@@ -362,7 +486,9 @@ class JobServiceTest {
         when(jobPositionRepository.findById(JOB_ID))
                 .thenReturn(Optional.of(draftJob(JobStatus.DRAFT, DEPARTMENT_ID)));
         when(pipelineTemplateRepository.findById(PIPELINE_TEMPLATE_ID)).thenReturn(Optional.of(activeTemplate()));
-        when(userRoleRepository.findActiveUserIdsByRoleCode(eq("HIRING_MANAGER"), any())).thenReturn(List.of());
+        // Không có Hiring Manager nào trong Access Scope - notifyHiringManagers phải tự
+        // xử lý im lặng (log warn), không được chặn luồng Submit chính.
+        when(hiringManagerResolver.resolveForJob(any(), eq(true))).thenReturn(List.of());
 
         JobDetailResponseDto response = jobService.submitForApproval(
                 JOB_ID, new SubmitJobRequestDto(PIPELINE_TEMPLATE_ID), recruiter);
@@ -374,22 +500,24 @@ class JobServiceTest {
         verify(jobApprovalRepository).save(any(JobApproval.class));
     }
 
+    /**
+     * "Chỉ Hiring Manager trong Access Scope" bản thân đã là trách nhiệm của
+     * {@link HiringManagerResolver} (xem {@code HiringManagerResolverTest}) -
+     * ở đây chỉ còn cần xác nhận {@code JobService} gọi đúng resolver
+     * (requiresWrite=true, khớp JOB_APPROVE) và gửi đúng 1 email/người nó trả về.
+     */
     @Test
-    void submitForApproval_notifiesOnlyHiringManagersWithinScope() {
+    void submitForApproval_notifiesEveryHiringManagerTheResolverReturns() {
         when(jobPositionRepository.findById(JOB_ID))
                 .thenReturn(Optional.of(draftJob(JobStatus.DRAFT, DEPARTMENT_ID)));
         when(pipelineTemplateRepository.findById(PIPELINE_TEMPLATE_ID)).thenReturn(Optional.of(activeTemplate()));
-        User inScopeManager = User.builder().id(20L).fullName("Manager In Scope").email("in-scope@hirewise.com").build();
-        User outOfScopeManager = User.builder().id(21L).fullName("Manager Out").email("out-scope@hirewise.com").build();
-        when(userRoleRepository.findActiveUserIdsByRoleCode(eq("HIRING_MANAGER"), any()))
-                .thenReturn(List.of(20L, 21L));
-        when(userRepository.findAllById(List.of(20L, 21L))).thenReturn(List.of(inScopeManager, outOfScopeManager));
-        when(accessScopeService.isWithinScope(eq(20L), any(), eq(true))).thenReturn(true);
-        when(accessScopeService.isWithinScope(eq(21L), any(), eq(true))).thenReturn(false);
+        User managerA = User.builder().id(20L).fullName("Manager A").email("a@hirewise.com").build();
+        User managerB = User.builder().id(21L).fullName("Manager B").email("b@hirewise.com").build();
+        when(hiringManagerResolver.resolveForJob(any(), eq(true))).thenReturn(List.of(managerA, managerB));
 
         jobService.submitForApproval(JOB_ID, new SubmitJobRequestDto(PIPELINE_TEMPLATE_ID), recruiter);
 
-        verify(outboxEventPublisher, org.mockito.Mockito.times(1))
+        verify(outboxEventPublisher, org.mockito.Mockito.times(2))
                 .publish(eq(com.hirewise.be.event.OutboxEventType.JOB_SUBMITTED_FOR_APPROVAL_EMAIL), any());
     }
 }

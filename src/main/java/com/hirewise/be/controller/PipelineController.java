@@ -3,6 +3,7 @@ package com.hirewise.be.controller;
 import com.hirewise.be.dto.request.CreatePipelineStageRequestDto;
 import com.hirewise.be.dto.request.CreatePipelineTemplateRequestDto;
 import com.hirewise.be.dto.request.ReorderPipelineStagesRequestDto;
+import com.hirewise.be.dto.request.UpdateStageRequestDto;
 import com.hirewise.be.dto.request.UpdateStageSlaRequestDto;
 import com.hirewise.be.dto.response.PipelineStageResponseDto;
 import com.hirewise.be.dto.response.PipelineTemplateResponseDto;
@@ -34,22 +35,26 @@ import java.util.List;
  * package).
  * <p>
  * RBAC per endpoint - split (V40) between {@code PIPELINE_VIEW} (read-only,
- * HR_ADMIN + RECRUITER + HIRING_MANAGER since V45) and {@code PIPELINE_MANAGE}
- * (create/reorder/delete/activate, HR_ADMIN only) so Recruiter can list/preview
- * Templates for UC-13, and Hiring Manager can see Stages to configure their SLA,
- * without either also being granted the ability to modify Pipeline structure.
- * The SLA endpoint (US-MGR-04, UC-40) is its own third permission,
- * {@code SLA_CONFIGURE} (HR_ADMIN + HIRING_MANAGER), narrower than
- * {@code PIPELINE_MANAGE} on purpose - it is the only Stage field a Hiring
- * Manager may ever change:
+ * HR_ADMIN + RECRUITER) and {@code PIPELINE_MANAGE} (create/reorder/delete/
+ * activate/configure SLA, HR_ADMIN only) so Recruiter can list/preview
+ * Templates for UC-13 without also being granted the ability to modify
+ * Pipeline structure. SLA (US-MGR-04, UC-40) is configured by HR Admin
+ * alongside the rest of a Stage's structure, through the same
+ * {@code PIPELINE_MANAGE} as every other Stage-editing endpoint - it was
+ * briefly its own permission open to Hiring Manager too (V45), reverted
+ * after a team decision to keep Pipeline configuration exclusively HR
+ * Admin's (see {@code V47}). Every Stage mutation below also fails with
+ * {@code PIPELINE_TEMPLATE_NOT_EDITABLE} once the template is
+ * {@code ACTIVE} (see {@code PipelineService#requireTemplateEditable}):
  * <ul>
  *   <li>{@code GET    /api/pipeline-templates}                                 - {@code PIPELINE_VIEW}</li>
  *   <li>{@code POST   /api/pipeline-templates}                                 - {@code PIPELINE_MANAGE}</li>
  *   <li>{@code GET    /api/pipeline-templates/{templateId}/stages}             - {@code PIPELINE_VIEW}</li>
- *   <li>{@code POST   /api/pipeline-templates/{templateId}/stages}             - {@code PIPELINE_MANAGE}</li>
- *   <li>{@code PATCH  /api/pipeline-templates/{templateId}/stages/reorder}     - {@code PIPELINE_MANAGE}</li>
- *   <li>{@code PATCH  /api/pipeline-templates/{templateId}/stages/{stageId}/sla} - {@code SLA_CONFIGURE}</li>
- *   <li>{@code DELETE /api/pipeline-templates/{templateId}/stages/{stageId}}   - {@code PIPELINE_MANAGE}</li>
+ *   <li>{@code POST   /api/pipeline-templates/{templateId}/stages}             - {@code PIPELINE_MANAGE}, template must be DRAFT</li>
+ *   <li>{@code PATCH  /api/pipeline-templates/{templateId}/stages/{stageId}}   - {@code PIPELINE_MANAGE}, template must be DRAFT (full edit)</li>
+ *   <li>{@code PATCH  /api/pipeline-templates/{templateId}/stages/reorder}     - {@code PIPELINE_MANAGE}, template must be DRAFT</li>
+ *   <li>{@code PATCH  /api/pipeline-templates/{templateId}/stages/{stageId}/sla} - {@code PIPELINE_MANAGE}, template must be DRAFT</li>
+ *   <li>{@code DELETE /api/pipeline-templates/{templateId}/stages/{stageId}}   - {@code PIPELINE_MANAGE}, template must be DRAFT</li>
  *   <li>{@code POST   /api/pipeline-templates/{templateId}/activate}          - {@code PIPELINE_MANAGE}</li>
  * </ul>
  */
@@ -122,6 +127,27 @@ public class PipelineController {
     }
 
     /**
+     * Edits an existing Stage's full structure (name/code/type/terminal
+     * flag/SLA) - not just the SLA threshold (see {@link #updateStageSla}
+     * for that narrower endpoint). Requires {@code PIPELINE_MANAGE}; only
+     * reachable while the template is {@code DRAFT}.
+     *
+     * @param templateId  id of the pipeline template the stage belongs to
+     * @param stageId     id of the stage to edit
+     * @param request     the stage's full new name/code/type/terminal flag/SLA
+     * @param currentUser authenticated caller, used for authorization and auditing
+     * @return the updated stage
+     */
+    @PatchMapping("/{templateId}/stages/{stageId}")
+    public ResponseEntity<PipelineStageResponseDto> updateStage(
+            @PathVariable Long templateId,
+            @PathVariable Long stageId,
+            @Valid @RequestBody UpdateStageRequestDto request,
+            @CurrentUserPrincipal CurrentUser currentUser) {
+        return ResponseEntity.ok(pipelineService.updateStage(templateId, stageId, request, currentUser));
+    }
+
+    /**
      * UC-05 main flow: reorders every Stage of a Pipeline Template in one
      * shot. Requires {@code PIPELINE_MANAGE}.
      *
@@ -141,9 +167,9 @@ public class PipelineController {
     /**
      * US-MGR-04 (UC-40, SLA Monitoring): sets or clears the SLA threshold
      * (max hours an Application may sit in this Stage) of one existing
-     * Stage. Requires {@code SLA_CONFIGURE} - held by both HR_ADMIN and
-     * HIRING_MANAGER (V2), unlike every other Stage-editing endpoint above
-     * which stays HR_ADMIN-only.
+     * Stage. Requires {@code PIPELINE_MANAGE} - HR Admin configures this
+     * alongside the rest of the Stage's structure; blocked once the
+     * template is {@code ACTIVE}.
      *
      * @param templateId  id of the pipeline template the stage belongs to
      * @param stageId     id of the stage to configure
