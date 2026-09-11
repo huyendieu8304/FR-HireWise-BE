@@ -3,6 +3,7 @@ package com.hirewise.be.controller;
 import com.hirewise.be.dto.request.CreatePipelineStageRequestDto;
 import com.hirewise.be.dto.request.CreatePipelineTemplateRequestDto;
 import com.hirewise.be.dto.request.ReorderPipelineStagesRequestDto;
+import com.hirewise.be.dto.request.UpdateStageSlaRequestDto;
 import com.hirewise.be.dto.response.PipelineStageResponseDto;
 import com.hirewise.be.dto.response.PipelineTemplateResponseDto;
 import com.hirewise.be.security.CurrentUser;
@@ -33,15 +34,21 @@ import java.util.List;
  * package).
  * <p>
  * RBAC per endpoint - split (V40) between {@code PIPELINE_VIEW} (read-only,
- * HR_ADMIN + RECRUITER) and {@code PIPELINE_MANAGE} (create/edit/delete,
- * HR_ADMIN only) so Recruiter can list/preview Templates for UC-13 without
- * also being granted the ability to modify Pipeline configuration:
+ * HR_ADMIN + RECRUITER + HIRING_MANAGER since V45) and {@code PIPELINE_MANAGE}
+ * (create/reorder/delete/activate, HR_ADMIN only) so Recruiter can list/preview
+ * Templates for UC-13, and Hiring Manager can see Stages to configure their SLA,
+ * without either also being granted the ability to modify Pipeline structure.
+ * The SLA endpoint (US-MGR-04, UC-40) is its own third permission,
+ * {@code SLA_CONFIGURE} (HR_ADMIN + HIRING_MANAGER), narrower than
+ * {@code PIPELINE_MANAGE} on purpose - it is the only Stage field a Hiring
+ * Manager may ever change:
  * <ul>
  *   <li>{@code GET    /api/pipeline-templates}                                 - {@code PIPELINE_VIEW}</li>
  *   <li>{@code POST   /api/pipeline-templates}                                 - {@code PIPELINE_MANAGE}</li>
  *   <li>{@code GET    /api/pipeline-templates/{templateId}/stages}             - {@code PIPELINE_VIEW}</li>
  *   <li>{@code POST   /api/pipeline-templates/{templateId}/stages}             - {@code PIPELINE_MANAGE}</li>
  *   <li>{@code PATCH  /api/pipeline-templates/{templateId}/stages/reorder}     - {@code PIPELINE_MANAGE}</li>
+ *   <li>{@code PATCH  /api/pipeline-templates/{templateId}/stages/{stageId}/sla} - {@code SLA_CONFIGURE}</li>
  *   <li>{@code DELETE /api/pipeline-templates/{templateId}/stages/{stageId}}   - {@code PIPELINE_MANAGE}</li>
  *   <li>{@code POST   /api/pipeline-templates/{templateId}/activate}          - {@code PIPELINE_MANAGE}</li>
  * </ul>
@@ -129,6 +136,28 @@ public class PipelineController {
             @Valid @RequestBody ReorderPipelineStagesRequestDto request,
             @CurrentUserPrincipal CurrentUser currentUser) {
         return ResponseEntity.ok(pipelineService.reorderStages(templateId, request, currentUser));
+    }
+
+    /**
+     * US-MGR-04 (UC-40, SLA Monitoring): sets or clears the SLA threshold
+     * (max hours an Application may sit in this Stage) of one existing
+     * Stage. Requires {@code SLA_CONFIGURE} - held by both HR_ADMIN and
+     * HIRING_MANAGER (V2), unlike every other Stage-editing endpoint above
+     * which stays HR_ADMIN-only.
+     *
+     * @param templateId  id of the pipeline template the stage belongs to
+     * @param stageId     id of the stage to configure
+     * @param request     new SLA threshold in hours, or {@code null} to clear it
+     * @param currentUser authenticated caller, used for authorization and auditing
+     * @return the updated stage
+     */
+    @PatchMapping("/{templateId}/stages/{stageId}/sla")
+    public ResponseEntity<PipelineStageResponseDto> updateStageSla(
+            @PathVariable Long templateId,
+            @PathVariable Long stageId,
+            @Valid @RequestBody UpdateStageSlaRequestDto request,
+            @CurrentUserPrincipal CurrentUser currentUser) {
+        return ResponseEntity.ok(pipelineService.updateStageSla(templateId, stageId, request, currentUser));
     }
 
     /**

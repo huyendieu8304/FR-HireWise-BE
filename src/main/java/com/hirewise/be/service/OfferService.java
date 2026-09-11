@@ -266,6 +266,7 @@ public class OfferService {
         // would pick; OFFER_SENT stays the business of UC-37's send step.
         application.setStatus(ApplicationStatus.IN_PROGRESS);
         application.setLastStageChangedAt(now);
+        application.setSlaAlertSentAt(null); // UC-41: fresh stage-dwell, un-alerted
         application.setUpdatedAt(now);
         applicationRepository.save(application);
 

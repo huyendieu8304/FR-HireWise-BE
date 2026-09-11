@@ -30,6 +30,8 @@ public enum OutboxEventType {
     BOOKING_CONFIRMED_EMAIL,
     /** EM-10 (UC-32 step 4): summary of which channels the Recruiter shared a Job to. */
     JOB_SHARE_SUMMARY_EMAIL,
+    /** EM-13 (UC-41, SLA Monitoring): notifies a Hiring Manager of Applications past their Stage's SLA. */
+    SLA_BREACH_ALERT_EMAIL,
 
     ;
 }

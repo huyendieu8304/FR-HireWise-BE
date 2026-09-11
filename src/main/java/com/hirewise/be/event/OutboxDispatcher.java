@@ -211,6 +211,20 @@ public class OutboxDispatcher {
                     emailService.sendTemplateEmail(
                             requireField(payload, "email", event.getEventType()), "EM-10", vars);
                 }
+                // EM-13 (UC-41): 1 email per (Job, Stage) group - Breach_List is already
+                // rendered into one flattened string by SlaBreachWorker, same reasoning as
+                // JOB_SHARE_SUMMARY_EMAIL's Channel_Status_List above.
+                case SLA_BREACH_ALERT_EMAIL -> {
+                    java.util.Map<String, String> vars = new java.util.HashMap<>();
+                    vars.put("Manager_Name", payload.path("managerName").asText(""));
+                    vars.put("n", payload.path("n").asText("0"));
+                    vars.put("Stage_Name", payload.path("stageName").asText(""));
+                    vars.put("Job_Title", payload.path("jobTitle").asText(""));
+                    vars.put("Breach_List", payload.path("breachList").asText(""));
+                    vars.put("Dashboard_Link", payload.path("dashboardLink").asText(""));
+                    emailService.sendTemplateEmail(
+                            requireField(payload, "email", event.getEventType()), "EM-13", vars);
+                }
             }
             event.setStatus(OutboxEventStatus.SENT);
             event.setProcessedAt(Instant.now(clock));

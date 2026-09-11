@@ -11,6 +11,7 @@ import com.hirewise.be.domain.StageType;
 import com.hirewise.be.dto.request.CreatePipelineStageRequestDto;
 import com.hirewise.be.dto.request.CreatePipelineTemplateRequestDto;
 import com.hirewise.be.dto.request.ReorderPipelineStagesRequestDto;
+import com.hirewise.be.dto.request.UpdateStageSlaRequestDto;
 import com.hirewise.be.dto.response.PipelineStageResponseDto;
 import com.hirewise.be.dto.response.PipelineTemplateResponseDto;
 import com.hirewise.be.exception.BadRequestException;
@@ -246,6 +247,33 @@ class PipelineServiceTest {
     }
 
     @Test
+    void createStage_terminalStageTypeWithSlaHours_throwsBadRequest_UC40() {
+        when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.of(templateWithDepartment(null)));
+        // sla_hours vô nghĩa cho 1 Stage kết thúc pipeline - SlaBreachWorker loại
+        // trừ Stage Terminal ngay từ đầu, giá trị này sẽ không bao giờ có tác dụng.
+        CreatePipelineStageRequestDto request =
+                new CreatePipelineStageRequestDto("Hired", "HIRED", StageType.TERMINAL_SUCCESS, false, 24);
+
+        assertThatThrownBy(() -> pipelineService.createStage(TEMPLATE_ID, request, hrAdmin))
+                .isInstanceOf(BadRequestException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.SLA_NOT_APPLICABLE_TO_TERMINAL_STAGE);
+        verify(pipelineStageRepository, never()).save(any());
+    }
+
+    @Test
+    void createStage_terminalCheckboxWithSlaHours_throwsBadRequest_UC40() {
+        when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.of(templateWithDepartment(null)));
+        // Không chỉ StageType TERMINAL_* mới bị chặn - checkbox "Is Terminal" tick thủ
+        // công trên 1 StageType khác cũng phải bị chặn y hệt (cùng điều kiện `terminal`).
+        CreatePipelineStageRequestDto request =
+                new CreatePipelineStageRequestDto("Custom End", "CUSTOM_END", StageType.SCREENING, true, 24);
+
+        assertThatThrownBy(() -> pipelineService.createStage(TEMPLATE_ID, request, hrAdmin))
+                .isInstanceOf(BadRequestException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.SLA_NOT_APPLICABLE_TO_TERMINAL_STAGE);
+    }
+
+    @Test
     void createStage_departmentScopedTemplate_checksAccessWithTemplateDepartment() {
         when(pipelineTemplateRepository.findById(TEMPLATE_ID))
                 .thenReturn(Optional.of(templateWithDepartment(DEPARTMENT_ID)));
@@ -455,6 +483,122 @@ class PipelineServiceTest {
 
         verify(accessControlService).checkAccess(hrAdmin, PermissionCodes.PIPELINE_MANAGE,
                 ResourceContext.department(DEPARTMENT_ID));
+    }
+
+    // -------------------------------------------------------------------
+    // Configure Stage SLA (US-MGR-04, UC-40) - the one Stage field a Hiring
+    // Manager may change, gated by SLA_CONFIGURE instead of PIPELINE_MANAGE.
+    // -------------------------------------------------------------------
+
+    @Test
+    void updateStageSla_checksAccessWithSlaConfigureNotPipelineManage() {
+        PipelineTemplate template = templateWithDepartment(DEPARTMENT_ID);
+        PipelineStage stage1 = stage(1L, 1, template);
+        when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.of(template));
+        when(pipelineStageRepository.findById(1L)).thenReturn(Optional.of(stage1));
+
+        pipelineService.updateStageSla(TEMPLATE_ID, 1L, new UpdateStageSlaRequestDto(48), hrAdmin);
+
+        verify(accessControlService).checkAccess(hrAdmin, PermissionCodes.SLA_CONFIGURE,
+                ResourceContext.department(DEPARTMENT_ID));
+        verify(accessControlService, never()).checkAccess(any(), eq(PermissionCodes.PIPELINE_MANAGE), any());
+    }
+
+    @Test
+    void updateStageSla_setsHours_savesStage() {
+        PipelineTemplate template = templateWithDepartment(null);
+        PipelineStage stage1 = stage(1L, 1, template);
+        when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.of(template));
+        when(pipelineStageRepository.findById(1L)).thenReturn(Optional.of(stage1));
+        when(applicationRepository.countByCurrentStage_Id(1L)).thenReturn(2L);
+
+        PipelineStageResponseDto response =
+                pipelineService.updateStageSla(TEMPLATE_ID, 1L, new UpdateStageSlaRequestDto(72), hrAdmin);
+
+        assertThat(stage1.getSlaHours()).isEqualTo(72);
+        assertThat(response.getSlaHours()).isEqualTo(72);
+        assertThat(response.getApplicationCount()).isEqualTo(2L);
+        verify(pipelineStageRepository).save(stage1);
+    }
+
+    @Test
+    void updateStageSla_nullClearsExistingThreshold() {
+        PipelineTemplate template = templateWithDepartment(null);
+        PipelineStage stage1 = stage(1L, 1, template);
+        stage1.setSlaHours(24);
+        when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.of(template));
+        when(pipelineStageRepository.findById(1L)).thenReturn(Optional.of(stage1));
+
+        pipelineService.updateStageSla(TEMPLATE_ID, 1L, new UpdateStageSlaRequestDto(null), hrAdmin);
+
+        assertThat(stage1.getSlaHours()).isNull();
+    }
+
+    @Test
+    void updateStageSla_terminalStage_throwsBadRequest_UC40() {
+        PipelineTemplate template = templateWithDepartment(null);
+        PipelineStage terminalStage = PipelineStage.builder()
+                .id(2L).pipelineTemplate(template).name("Hired").code("HIRED")
+                .stageType(StageType.TERMINAL_SUCCESS).position(2).terminal(true).active(true)
+                .createdAt(NOW).updatedAt(NOW).build();
+        when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.of(template));
+        when(pipelineStageRepository.findById(2L)).thenReturn(Optional.of(terminalStage));
+
+        assertThatThrownBy(() ->
+                pipelineService.updateStageSla(TEMPLATE_ID, 2L, new UpdateStageSlaRequestDto(24), hrAdmin))
+                .isInstanceOf(BadRequestException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.SLA_NOT_APPLICABLE_TO_TERMINAL_STAGE);
+        verify(pipelineStageRepository, never()).save(any());
+    }
+
+    @Test
+    void updateStageSla_terminalStage_clearingToNullIsStillAllowed() {
+        // Dọn dữ liệu cũ (từ trước khi có validation này) vẫn phải làm được -
+        // chỉ chặn việc ĐẶT thêm giá trị mới, không chặn việc xóa giá trị cũ đi.
+        PipelineTemplate template = templateWithDepartment(null);
+        PipelineStage terminalStage = PipelineStage.builder()
+                .id(2L).pipelineTemplate(template).name("Hired").code("HIRED")
+                .stageType(StageType.TERMINAL_SUCCESS).position(2).terminal(true).active(true).slaHours(24)
+                .createdAt(NOW).updatedAt(NOW).build();
+        when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.of(template));
+        when(pipelineStageRepository.findById(2L)).thenReturn(Optional.of(terminalStage));
+
+        pipelineService.updateStageSla(TEMPLATE_ID, 2L, new UpdateStageSlaRequestDto(null), hrAdmin);
+
+        assertThat(terminalStage.getSlaHours()).isNull();
+        verify(pipelineStageRepository).save(terminalStage);
+    }
+
+    @Test
+    void updateStageSla_stageBelongsToAnotherTemplate_throwsResourceNotFound() {
+        PipelineTemplate template = templateWithDepartment(null);
+        PipelineTemplate otherTemplate = PipelineTemplate.builder().id(99L).name("Other")
+                .status(PipelineTemplateStatus.DRAFT).createdAt(NOW).updatedAt(NOW).build();
+        PipelineStage stageOfOtherTemplate = stage(1L, 1, otherTemplate);
+        when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.of(template));
+        when(pipelineStageRepository.findById(1L)).thenReturn(Optional.of(stageOfOtherTemplate));
+
+        assertThatThrownBy(() ->
+                pipelineService.updateStageSla(TEMPLATE_ID, 1L, new UpdateStageSlaRequestDto(24), hrAdmin))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.PIPELINE_STAGE_NOT_FOUND);
+        verify(pipelineStageRepository, never()).save(any());
+    }
+
+    @Test
+    void updateStageSla_softDeletedStage_throwsResourceNotFound() {
+        PipelineTemplate template = templateWithDepartment(null);
+        PipelineStage inactiveStage = PipelineStage.builder()
+                .id(2L).pipelineTemplate(template).name("Old").code("OLD")
+                .stageType(StageType.SCREENING).position(2).terminal(false).active(false)
+                .createdAt(NOW).updatedAt(NOW).build();
+        when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.of(template));
+        when(pipelineStageRepository.findById(2L)).thenReturn(Optional.of(inactiveStage));
+
+        assertThatThrownBy(() ->
+                pipelineService.updateStageSla(TEMPLATE_ID, 2L, new UpdateStageSlaRequestDto(24), hrAdmin))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.PIPELINE_STAGE_NOT_FOUND);
     }
 
     // -------------------------------------------------------------------

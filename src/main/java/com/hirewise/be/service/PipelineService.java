@@ -11,6 +11,7 @@ import com.hirewise.be.domain.StageType;
 import com.hirewise.be.dto.request.CreatePipelineStageRequestDto;
 import com.hirewise.be.dto.request.CreatePipelineTemplateRequestDto;
 import com.hirewise.be.dto.request.ReorderPipelineStagesRequestDto;
+import com.hirewise.be.dto.request.UpdateStageSlaRequestDto;
 import com.hirewise.be.dto.response.PipelineStageResponseDto;
 import com.hirewise.be.dto.response.PipelineTemplateResponseDto;
 import com.hirewise.be.exception.BadRequestException;
@@ -168,6 +169,12 @@ public class PipelineService {
         // StageType Javadoc: a TERMINAL_SUCCESS/TERMINAL_REJECTED stage is always terminal,
         // regardless of what the "Is Terminal" checkbox was set to on the request.
         boolean terminal = request.isTerminal() || isTerminalStageType(request.getStageType());
+        // UC-40: SLA only makes sense for a Stage an Application can be "stuck" in -
+        // SlaBreachWorker excludes terminal Stages outright (see SlaMonitoringService),
+        // so a value set here would silently never do anything.
+        if (terminal && request.getSlaHours() != null) {
+            throw new BadRequestException(ErrorCode.SLA_NOT_APPLICABLE_TO_TERMINAL_STAGE);
+        }
         int nextPosition = pipelineStageRepository.findMaxPosition(templateId) + 1;
         Instant now = Instant.now(clock);
 
@@ -294,6 +301,55 @@ public class PipelineService {
 
         log.info("Soft-deleted pipeline stage: {} (templateId={}), re-indexed {} remaining stages",
                 stageId, templateId, remaining.size());
+    }
+
+    /**
+     * US-MGR-04 (UC-40, SLA Monitoring): sets or clears the SLA threshold of
+     * one existing Stage. Deliberately its own endpoint, gated by
+     * {@code SLA_CONFIGURE} rather than {@code PIPELINE_MANAGE} - a Hiring
+     * Manager holds the former but not the latter (V2), so this is the ONLY
+     * Stage field they may ever change; name/code/type/position/terminal
+     * stay exclusively HR Admin's, through the existing {@code PIPELINE_MANAGE}
+     * endpoints above.
+     *
+     * @param templateId  id of the pipeline template the stage belongs to
+     * @param stageId     id of the stage whose SLA is being configured
+     * @param request     new SLA threshold in hours, or {@code null} to clear it
+     * @param currentUser HR Admin or Hiring Manager performing the change
+     * @return the updated stage
+     * @throws ResourceNotFoundException if no template exists with {@code templateId}, or no
+     *                                    active stage with {@code stageId} exists within it
+     * @throws BadRequestException       if {@code request.slaHours} is non-null and the Stage
+     *                                    is Terminal (SLA never applies there - see
+     *                                    {@code ErrorCode#SLA_NOT_APPLICABLE_TO_TERMINAL_STAGE})
+     */
+    @Transactional
+    public PipelineStageResponseDto updateStageSla(
+            Long templateId, Long stageId, UpdateStageSlaRequestDto request, CurrentUser currentUser) {
+        PipelineTemplate template = findTemplateOrThrow(templateId);
+        Long departmentId = template.getDepartment() != null ? template.getDepartment().getId() : null;
+        accessControlService.checkAccess(currentUser, PermissionCodes.SLA_CONFIGURE,
+                ResourceContext.department(departmentId));
+
+        // Same "not found" treatment as deleteStage: a soft-deleted or foreign stage
+        // must never be configurable, silently or otherwise.
+        PipelineStage stage = pipelineStageRepository.findById(stageId)
+                .filter(s -> s.getPipelineTemplate().getId().equals(templateId) && s.isActive())
+                .orElseThrow(() -> new ResourceNotFoundException(ErrorCode.PIPELINE_STAGE_NOT_FOUND, stageId));
+
+        // Same rule as createStage - clearing (null) is always fine, e.g. cleaning up a
+        // Stage that had a value set before this validation existed.
+        if (stage.isTerminal() && request.getSlaHours() != null) {
+            throw new BadRequestException(ErrorCode.SLA_NOT_APPLICABLE_TO_TERMINAL_STAGE);
+        }
+
+        stage.setSlaHours(request.getSlaHours());
+        stage.setUpdatedAt(Instant.now(clock));
+        pipelineStageRepository.save(stage);
+
+        log.info("Configured SLA for pipeline stage: {} (templateId={}, slaHours={})",
+                stageId, templateId, request.getSlaHours());
+        return PipelineMapper.toResponseDto(stage, applicationRepository.countByCurrentStage_Id(stageId));
     }
 
     /**

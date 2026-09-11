@@ -197,6 +197,15 @@ public enum ErrorCode {
      */
     REPORT_EXPORT_FAILED("error.report_export_failed"),
 
+    // UC-40/UC-41 SLA Monitoring (module M19)
+    /**
+     * A Terminal-type Stage (TERMINAL_SUCCESS/TERMINAL_REJECTED) is where an
+     * Application's journey ENDS, not somewhere it can be "stuck" - SlaBreachWorker
+     * excludes terminal Stages outright, so a configured SLA there would silently
+     * never do anything. Clearing (null) is always allowed regardless.
+     */
+    SLA_NOT_APPLICABLE_TO_TERMINAL_STAGE("error.sla_not_applicable_to_terminal_stage"),
+
     ;
 
     private final String key;

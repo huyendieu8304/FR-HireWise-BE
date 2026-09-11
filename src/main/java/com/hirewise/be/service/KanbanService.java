@@ -160,6 +160,9 @@ public class KanbanService {
         Instant now = Instant.now(clock);
         application.setCurrentStage(toStage);
         application.setLastStageChangedAt(now);
+        // UC-41: a fresh stage-dwell starts un-alerted, regardless of whether the
+        // previous stage had already triggered an SLA breach email.
+        application.setSlaAlertSentAt(null);
         application.setStatus(deriveStatus(toStage));
         application.setUpdatedAt(now);
         applicationRepository.save(application);
