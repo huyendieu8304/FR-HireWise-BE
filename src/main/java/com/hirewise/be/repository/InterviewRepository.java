@@ -1,6 +1,7 @@
 package com.hirewise.be.repository;
 
 import com.hirewise.be.domain.Interview;
+import com.hirewise.be.domain.InterviewStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -13,6 +14,8 @@ import java.util.UUID;
  * Repository for {@link Interview} entities (UC-24).
  */
 public interface InterviewRepository extends JpaRepository<Interview, UUID> {
+
+    List<Interview> findAllByApplication_IdAndStatus(UUID applicationId, InterviewStatus status);
 
     @Query("""
             SELECT i FROM Interview i
@@ -29,6 +32,9 @@ public interface InterviewRepository extends JpaRepository<Interview, UUID> {
             JOIN FETCH i.application a
             JOIN FETCH a.candidate c
             JOIN FETCH a.jobPosition j
+            LEFT JOIN FETCH j.recruiter
+            LEFT JOIN FETCH j.hiringManager
+            LEFT JOIN FETCH i.scheduledBy
             LEFT JOIN FETCH i.participants p
             LEFT JOIN FETCH p.interviewer
             WHERE i.interviewDate BETWEEN :startDate AND :endDate

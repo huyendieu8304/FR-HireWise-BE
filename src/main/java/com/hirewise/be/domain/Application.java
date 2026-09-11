@@ -53,12 +53,31 @@ public class Application {
     private Instant lastStageChangedAt;
 
     /**
+     * UC-41 (SLA Monitoring): set the moment {@code service.SlaBreachWorker}
+     * sends an alert email for the CURRENT stage-dwell; {@code null} means
+     * not yet alerted. Reset to {@code null} every time {@link #currentStage}
+     * changes (same call sites that update {@link #lastStageChangedAt}) so a
+     * breach in a later Stage is never suppressed by a stale flag from an
+     * earlier one.
+     */
+    @Column(name = "sla_alert_sent_at")
+    private Instant slaAlertSentAt;
+
+    /**
      * UC-21: cache of the latest SUCCEEDED {@link AiScreeningRun#getMatchScore()} -
      * read by the Kanban card Badge (BR-AI-03) without a join. {@code null}
      * until the first AI Screening Run succeeds.
      */
     @Column(name = "ai_match_score")
     private BigDecimal aiMatchScore;
+
+    /**
+     * UC-32: the {@code utm_source} of the share link that brought this
+     * candidate in, matched against {@code publishing_channels.utm_source}.
+     * {@code null} means they reached the Job Board directly.
+     */
+    @Column(name = "source", length = 50)
+    private String source;
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;

@@ -37,8 +37,12 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.UncheckedIOException;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -68,6 +72,9 @@ public class JobApplicationService {
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
     private static final Set<String> ALLOWED_EXTENSIONS = Set.of("pdf", "doc", "docx");
 
+    /** ISO 32000 PDF header magic number - the first 5 bytes of every valid .pdf file. */
+    private static final byte[] PDF_MAGIC_NUMBER = {'%', 'P', 'D', 'F', '-'};
+
     JobPositionRepository jobPositionRepository;
     CandidateRepository candidateRepository;
     ApplicationRepository applicationRepository;
@@ -77,7 +84,6 @@ public class JobApplicationService {
     FileStorageService fileStorageService;
     OutboxEventPublisher outboxEventPublisher;
     AuditLogService auditLogService;
-    AiScreeningService aiScreeningService;
     Clock clock;
 
     /**
@@ -110,7 +116,7 @@ public class JobApplicationService {
         boolean duplicate = existing.isPresent();
         Application application = duplicate
                 ? updateExistingApplication(existing.get(), now)
-                : createNewApplication(candidate, job, now);
+                : createNewApplication(candidate, job, request.getSource(), now);
 
         String safeFileName = buildSafeFileName(job, candidate, cvFile.getOriginalFilename());
         String subfolderName = job.getId().toString() + "/" + application.getId().toString();
@@ -119,10 +125,10 @@ public class JobApplicationService {
 
         attachCvFile(application, storedFile, duplicate, now);
 
-        // UC-21 precondition: queue an AI Screening Run now that the CV is attached -
-        // only ever inserts a row (PENDING or an immediate FAILED for an unsupported
-        // format), never calls the AI Engine itself on this request thread.
-        aiScreeningService.enqueueRun(application);
+        // UC-21: AI Screening KHÔNG tự động chạy nữa khi Candidate nộp hồ sơ -
+        // Recruiter chủ động bấm "Phân tích lại" trên 1 Application, hoặc "Quét
+        // cả cột" trên cột "Mới" của Kanban board (AiScreeningService#runManual /
+        // #runBatchForStage) khi họ thực sự muốn tốn credit gọi Claude API.
 
         outboxEventPublisher.publish(OutboxEventType.APPLICATION_CONFIRMATION_EMAIL,
                 OutboxPayloads.applicationConfirmationEmail(candidate.getPrimaryEmail(), candidate.getFullName(), job.getTitle()));
@@ -156,7 +162,8 @@ public class JobApplicationService {
     }
 
     /** place a brand-new Application into the Job's Pipeline first stage, and log the initial history event. */
-    private Application createNewApplication(Candidate candidate, JobPosition job, Instant now) {
+    private Application createNewApplication(
+            Candidate candidate, JobPosition job, String source, Instant now) {
         if (job.getPipelineTemplate() == null) {
             // Defensive: UC-13 is supposed to guarantee every job has a pipeline before it can be approved/published.
             throw new BusinessConflictException(ErrorCode.PIPELINE_NOT_CONFIGURED, job.getId());
@@ -173,6 +180,10 @@ public class JobApplicationService {
                 .status(ApplicationStatus.NEW)
                 .appliedAt(now)
                 .lastStageChangedAt(now)
+                // UC-32: only set on a first application. A repeat application
+                // (BR-APPLY-02 AF-01) keeps whichever channel first brought this
+                // candidate in, rather than being re-attributed to the latest link.
+                .source(source)
                 .createdAt(now)
                 .updatedAt(now)
                 .build();
@@ -231,6 +242,27 @@ public class JobApplicationService {
         // trusting the file extension in that case rather than rejecting a legitimate CV.
         if (!typeOk && !extensionOk) {
             throw new BadRequestException(ErrorCode.INVALID_CV_FILE);
+        }
+
+        // BR-APPLY-01 hardening: content-type/extension are both just labels the browser/OS
+        // attaches - a .doc renamed to .pdf, or a truncated/corrupted upload, sails through the
+        // check above unnoticed. Left unvalidated, that file gets accepted, queued, and only fails
+        // MINUTES later at the AI Screening step with a raw Claude error ("The PDF specified was
+        // not valid") that means nothing to a Recruiter. Reading the first 5 bytes and comparing
+        // against the PDF format's own magic number (ISO 32000 - every real .pdf starts with
+        // literal bytes "%PDF-") catches this for free, at upload time, before it ever costs an
+        // AI Engine call.
+        if ((extension.equals("pdf") || contentType.equals("application/pdf")) && !hasPdfMagicNumber(cvFile)) {
+            throw new BadRequestException(ErrorCode.INVALID_CV_FILE);
+        }
+    }
+
+    private static boolean hasPdfMagicNumber(MultipartFile file) {
+        try (InputStream in = file.getInputStream()) {
+            byte[] header = in.readNBytes(PDF_MAGIC_NUMBER.length);
+            return Arrays.equals(header, PDF_MAGIC_NUMBER);
+        } catch (IOException e) {
+            throw new UncheckedIOException("Failed to read uploaded CV file for validation", e);
         }
     }
 

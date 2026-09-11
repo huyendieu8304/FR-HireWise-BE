@@ -44,12 +44,36 @@ public class AuditLogService {
      */
     @Transactional
     public void record(Long actorUserId, String action, String entityType, String entityId) {
+        record(actorUserId, action, entityType, entityId, null, null);
+    }
+
+    /**
+     * Same as {@link #record(Long, String, String, String)} but also stores the
+     * before/after snapshot columns. Added for UC-44, where the Recruiter may
+     * type an optional reason when pausing or closing a Job: that reason is
+     * reference-only data, never queried by any business rule, so it belongs in
+     * the audit trail rather than in a new {@code job_positions} column.
+     *
+     * @param actorUserId internal id of the user who performed the action;
+     *                    {@code null} for a system/automation action
+     * @param action      short action code, e.g. {@code "JOB_PAUSED"}
+     * @param entityType  the affected table, e.g. {@code "job_positions"}
+     * @param entityId    the affected row's id (as text)
+     * @param beforeJson  JSON snapshot of the relevant fields before the change,
+     *                    or {@code null} when there is nothing meaningful to record
+     * @param afterJson   JSON snapshot after the change, or {@code null}
+     */
+    @Transactional
+    public void record(Long actorUserId, String action, String entityType, String entityId,
+                       String beforeJson, String afterJson) {
         Instant now = Instant.now(clock);
         AuditLog auditLog = AuditLog.builder()
                 .actorUserId(actorUserId)
                 .action(action)
                 .entityType(entityType)
                 .entityId(entityId)
+                .beforeJson(beforeJson)
+                .afterJson(afterJson)
                 .createdAt(now)
                 .build();
         auditLogRepository.save(auditLog);

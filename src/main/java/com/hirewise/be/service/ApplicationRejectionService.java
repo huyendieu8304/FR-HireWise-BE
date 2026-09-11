@@ -106,6 +106,7 @@ public class ApplicationRejectionService {
         application.setCurrentStage(toStage);
         application.setStatus(ApplicationStatus.REFUSED);
         application.setLastStageChangedAt(now);
+        application.setSlaAlertSentAt(null); // UC-41: fresh stage-dwell, un-alerted
         application.setUpdatedAt(now);
         applicationRepository.save(application);
 

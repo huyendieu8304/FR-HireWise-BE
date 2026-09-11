@@ -7,6 +7,8 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import java.time.Duration;
+
 /**
  * UC-21: exposes the Anthropic Claude API client used by
  * {@code ai.AnthropicMatchingEngine} to compute AI Match Score/skill
@@ -22,11 +24,27 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 public class AnthropicConfig {
 
+    /**
+     * The SDK's own default timeout is generous (built for long streaming
+     * completions) - way more than a small {@code maxTokens(2048)}
+     * structured-JSON call over 1 CV should ever need. Left uncapped, a slow/
+     * stalled connection to Anthropic blocks {@code event.AiScreeningDispatcher}'s
+     * single scheduler thread for that entire duration - since that thread
+     * processes every {@code PENDING} run ONE AT A TIME (see its class
+     * Javadoc), one hung call stalls the whole AI Screening queue for every
+     * Recruiter, not just the run that triggered it. Failing fast here means
+     * a bad call becomes 1 FAILED run within ~1 minute (EX-01, still just an
+     * AF-01 "Phân tích lại" retry away) instead of an indefinite company-wide
+     * stall on a support-only feature (BR-AI-01).
+     */
+    private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(60);
+
     @Bean
     @ConditionalOnProperty(prefix = "app.ai", name = "engine", havingValue = "anthropic", matchIfMissing = true)
     public AnthropicClient anthropicClient(@Value("${app.ai.anthropic.api-key}") String apiKey) {
         return AnthropicOkHttpClient.builder()
                 .apiKey(apiKey)
+                .timeout(REQUEST_TIMEOUT)
                 .build();
     }
 }

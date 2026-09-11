@@ -166,28 +166,56 @@ public class GoogleCalendarProviderClient implements CalendarProviderClient {
             String description,
             java.time.LocalDateTime startDateTime,
             java.time.LocalDateTime endDateTime) {
+        return createMeetingEvent(accessToken, summary, description, startDateTime, endDateTime, java.util.List.of());
+    }
+
+    /**
+     * Creates a Google Calendar event with a Google Meet conference link and invites attendees,
+     * automatically syncing the event to their personal Google Calendars.
+     */
+    public String createMeetingEvent(
+            String accessToken,
+            String summary,
+            String description,
+            java.time.LocalDateTime startDateTime,
+            java.time.LocalDateTime endDateTime,
+            java.util.List<String> attendeeEmails) {
         try {
             String startIso = startDateTime.atZone(java.time.ZoneId.of("Asia/Ho_Chi_Minh"))
                     .format(java.time.format.DateTimeFormatter.ISO_OFFSET_DATE_TIME);
             String endIso = endDateTime.atZone(java.time.ZoneId.of("Asia/Ho_Chi_Minh"))
                     .format(java.time.format.DateTimeFormatter.ISO_OFFSET_DATE_TIME);
 
-            java.util.Map<String, Object> body = java.util.Map.of(
-                    "summary", summary,
-                    "description", description != null ? description : "",
-                    "start", java.util.Map.of("dateTime", startIso, "timeZone", "Asia/Ho_Chi_Minh"),
-                    "end", java.util.Map.of("dateTime", endIso, "timeZone", "Asia/Ho_Chi_Minh"),
-                    "conferenceData", java.util.Map.of(
-                            "createRequest", java.util.Map.of(
-                                    "requestId", java.util.UUID.randomUUID().toString(),
-                                    "conferenceSolutionKey", java.util.Map.of("type", "hangoutsMeet")
-                            )
+            java.util.Map<String, Object> body = new java.util.HashMap<>();
+            body.put("summary", summary);
+            body.put("description", description != null ? description : "");
+            body.put("start", java.util.Map.of("dateTime", startIso, "timeZone", "Asia/Ho_Chi_Minh"));
+            body.put("end", java.util.Map.of("dateTime", endIso, "timeZone", "Asia/Ho_Chi_Minh"));
+            body.put("conferenceData", java.util.Map.of(
+                    "createRequest", java.util.Map.of(
+                            "requestId", java.util.UUID.randomUUID().toString(),
+                            "conferenceSolutionKey", java.util.Map.of("type", "hangoutsMeet")
                     )
-            );
+            ));
+
+            if (attendeeEmails != null && !attendeeEmails.isEmpty()) {
+                java.util.List<java.util.Map<String, String>> attendees = attendeeEmails.stream()
+                        .filter(email -> email != null && !email.isBlank())
+                        .distinct()
+                        .map(email -> java.util.Map.of("email", email))
+                        .toList();
+                if (!attendees.isEmpty()) {
+                    body.put("attendees", attendees);
+                }
+            }
+
+            String uri = (attendeeEmails != null && !attendeeEmails.isEmpty())
+                    ? "/calendars/primary/events?conferenceDataVersion=1&sendUpdates=all"
+                    : "/calendars/primary/events?conferenceDataVersion=1";
 
             @SuppressWarnings("unchecked")
             java.util.Map<String, Object> response = calendarClient.post()
-                    .uri("/calendars/primary/events?conferenceDataVersion=1")
+                    .uri(uri)
                     .headers(headers -> headers.setBearerAuth(accessToken))
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(body)

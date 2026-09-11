@@ -107,7 +107,9 @@ public class PublicOfferController {
             @PathVariable String token,
             @Valid @RequestBody SignOfferRequestDto request,
             HttpServletRequest httpRequest) {
-        String clientIp = ClientIpResolver.resolve(httpRequest);
+        // Validated, not raw: this value is persisted inside the signing
+        // transaction, so a junk X-Forwarded-For must not fail the insert.
+        String clientIp = ClientIpResolver.resolveIpLiteral(httpRequest);
         return ResponseEntity.ok(offerSigningService.sign(token, request, clientIp));
     }
 }

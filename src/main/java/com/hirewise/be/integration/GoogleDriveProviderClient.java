@@ -4,13 +4,17 @@ import com.hirewise.be.domain.IntegrationProvider;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.ClientHttpRequestFactory;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
+import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.util.UriComponentsBuilder;
 
+import java.time.Duration;
 import java.util.Map;
 
 /**
@@ -34,9 +38,33 @@ public class GoogleDriveProviderClient implements CloudStorageProviderClient {
     private final String clientId;
     private final String clientSecret;
     private final String redirectUri;
-    private final RestClient tokenClient = RestClient.create();
-    private final RestClient driveClient = RestClient.builder().baseUrl(DRIVE_API_BASE_URL).build();
-    private final RestClient driveUploadClient = RestClient.builder().baseUrl(DRIVE_UPLOAD_BASE_URL).build();
+    // Không đặt timeout thì gọi Google Drive treo vô thời hạn khi mạng chập chờn -
+    // downloadFile() nằm ngay trong luồng "phân tích AI" (event.AiScreeningDispatcher
+    // chạy 1 luồng duy nhất, tuần tự từng run) nên 1 request Drive bị treo chặn đứng
+    // TOÀN BỘ hàng đợi AI Screening, không chỉ request đang gọi.
+    private final ClientHttpRequestFactory requestFactory = defaultRequestFactory();
+    private final RestClient tokenClient = RestClient.builder().requestFactory(requestFactory).build();
+    private final RestClient driveClient = RestClient.builder().baseUrl(DRIVE_API_BASE_URL).requestFactory(requestFactory).build();
+    private final RestClient driveUploadClient = RestClient.builder().baseUrl(DRIVE_UPLOAD_BASE_URL).requestFactory(requestFactory).build();
+
+    private static ClientHttpRequestFactory defaultRequestFactory() {
+        // QUAN TRỌNG: PHẢI dùng JdkClientHttpRequestFactory (java.net.http.HttpClient),
+        // KHÔNG dùng SimpleClientHttpRequestFactory (java.net.HttpURLConnection đời cũ) -
+        // HttpURLConnection có 1 danh sách HTTP method cố định cứng KHÔNG bao gồm PATCH,
+        // và uploadFile() bên dưới gọi PATCH thật (Drive API "cập nhật media" dùng đúng
+        // method này). Bản trước đây từng dùng nhầm SimpleClientHttpRequestFactory chỉ để
+        // set timeout, khiến MỌI lần upload CV thật lên Google Drive đều crash với
+        // "Invalid HTTP method: PATCH" (rơi vào queueLocally, hiện FILE_NOT_YET_AVAILABLE
+        // ở bước phân tích AI) - dù kết nối, token, quyền... đều hoàn toàn bình thường.
+        java.net.http.HttpClient httpClient = java.net.http.HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(10))
+                .build();
+        JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(httpClient);
+        // 60s: đủ rộng rãi cho việc tải 1 file CV (giới hạn 10MB, BR-APPLY-01) qua mạng
+        // chậm, nhưng vẫn có trần - không để treo vô hạn.
+        factory.setReadTimeout(Duration.ofSeconds(60));
+        return factory;
+    }
 
     private final java.util.concurrent.ConcurrentHashMap<String, String> folderCache = new java.util.concurrent.ConcurrentHashMap<>();
 
@@ -90,7 +118,7 @@ public class GoogleDriveProviderClient implements CloudStorageProviderClient {
                     .retrieve()
                     .body(OAuthTokenResponse.class);
         } catch (RestClientException e) {
-            throw new IntegrationConnectException("Google Drive token exchange failed", e);
+            throw new IntegrationConnectException("Google Drive token exchange failed: " + describe(e), e);
         }
     }
 
@@ -119,7 +147,7 @@ public class GoogleDriveProviderClient implements CloudStorageProviderClient {
             // HireWise's access from their Google Account settings) - the caller
             // (CloudStorageTokenRefreshWorker) falls back to marking the connection
             // EXPIRED so UC-08's normal Reconnect flow can recover it.
-            throw new IntegrationConnectException("Google Drive token refresh failed", e);
+            throw new IntegrationConnectException("Google Drive token refresh failed: " + describe(e), e);
         }
     }
 
@@ -231,6 +259,24 @@ public class GoogleDriveProviderClient implements CloudStorageProviderClient {
         return value.replace("\\", "\\\\").replace("'", "\\'");
     }
 
+    /**
+     * Trước đây mọi {@code catch (RestClientException e)} ở dưới chỉ ném lại 1
+     * câu literal cố định (vd "Google Drive file upload failed") - {@code e}
+     * (chứa mã HTTP status + response body thật từ Google, lý do THẬT SỰ của
+     * lỗi) bị nuốt mất, không hề lộ ra log. Hệ quả: dòng log duy nhất
+     * (`FileStorageService`'s "queueing locally...") không cho biết vì sao,
+     * khiến việc debug 1 CV bị kẹt local gần như không thể chỉ dựa vào log.
+     * Với {@link HttpStatusCodeException} (Drive trả về non-2xx, vd 401/403/
+     * 404), Spring giữ nguyên response body trong exception - in nó ra để
+     * thấy đúng lỗi Google trả về thay vì chỉ có mã trạng thái trần trụi.
+     */
+    private static String describe(RestClientException e) {
+        if (e instanceof HttpStatusCodeException hsce) {
+            return hsce.getStatusCode() + " " + hsce.getResponseBodyAsString();
+        }
+        return e.getMessage();
+    }
+
     @Override
     public String uploadFile(String accessToken, String rootFolderId, String subfolderName, String fileName, String mimeType, byte[] content) {
         try {
@@ -268,7 +314,7 @@ public class GoogleDriveProviderClient implements CloudStorageProviderClient {
                     .toBodilessEntity();
             return fileId;
         } catch (RestClientException e) {
-            throw new IntegrationConnectException("Google Drive file upload failed", e);
+            throw new IntegrationConnectException("Google Drive file upload failed: " + describe(e), e);
         }
     }
 
@@ -284,7 +330,8 @@ public class GoogleDriveProviderClient implements CloudStorageProviderClient {
                     .retrieve()
                     .body(byte[].class);
         } catch (RestClientException e) {
-            throw new IntegrationConnectException("Failed to download file from Google Drive: " + externalFileId, e);
+            throw new IntegrationConnectException(
+                    "Failed to download file from Google Drive: " + externalFileId + " - " + describe(e), e);
         }
     }
 
@@ -312,7 +359,8 @@ public class GoogleDriveProviderClient implements CloudStorageProviderClient {
             }
             return (String) response.get("webViewLink");
         } catch (RestClientException e) {
-            throw new IntegrationConnectException("Failed to get Google Drive view URL for file " + externalFileId, e);
+            throw new IntegrationConnectException(
+                    "Failed to get Google Drive view URL for file " + externalFileId + " - " + describe(e), e);
         }
     }
 }

@@ -165,5 +165,44 @@ public interface JobPositionRepository extends JpaRepository<JobPosition, UUID> 
             @Param("status") JobStatus status,
             @Param("keyword") String keyword,
             Pageable pageable);
-}
 
+    /**
+     * UC-42/UC-43 (BR-RPT-02): the set of Job Positions a non-SYSTEM user may
+     * see in a report. Two independent grants are UNIONed here:
+     * <ul>
+     *   <li>Jobs of any department in the caller's Access Scope - "Hiring
+     *       Manager chi thay phong ban phu trach". Sub-departments are already
+     *       flattened into {@code allowedDepartmentIds} by the caller.</li>
+     *   <li>Jobs the caller is the assigned Recruiter of - "Recruiter thay Job
+     *       minh quan ly". A Recruiter can own a Job outside their department
+     *       scope, and RBAC layer 4 ({@code @RequiresOwnership}) cannot express
+     *       "filter a whole report", so the ownership grant is applied here.</li>
+     * </ul>
+     * Reports intersect this set with the UI's own department/job filters, so
+     * passing an arbitrary {@code departmentId} can never widen what is visible.
+     *
+     * @param allowedDepartmentIds departments in scope, already including
+     *                             descendants; may be empty
+     * @param recruiterId          the caller, matched against {@code recruiter_id}
+     * @return ids of every job position the caller may report on
+     */
+    @Query("""
+            SELECT j.id FROM JobPosition j
+            WHERE j.department.id IN :allowedDepartmentIds
+               OR j.recruiter.id = :recruiterId
+            """)
+    java.util.List<UUID> findIdsInDepartmentsOrOwnedBy(
+            @Param("allowedDepartmentIds") java.util.List<Long> allowedDepartmentIds,
+            @Param("recruiterId") Long recruiterId);
+
+    /**
+     * UC-42/UC-43: same as {@link #findIdsInDepartmentsOrOwnedBy} for a caller
+     * whose only grants are JOB-typed Access Scope rows - the scope already
+     * names the jobs, this just keeps the resolver's return type uniform.
+     *
+     * @param recruiterId the caller, matched against {@code recruiter_id}
+     * @return ids of every job position the caller is the Recruiter of
+     */
+    @Query("SELECT j.id FROM JobPosition j WHERE j.recruiter.id = :recruiterId")
+    java.util.List<UUID> findIdsOwnedBy(@Param("recruiterId") Long recruiterId);
+}

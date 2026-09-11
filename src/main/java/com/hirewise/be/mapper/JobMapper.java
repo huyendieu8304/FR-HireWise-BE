@@ -1,6 +1,8 @@
 package com.hirewise.be.mapper;
 
 import com.hirewise.be.domain.JobPosition;
+import com.hirewise.be.domain.User;
+import com.hirewise.be.dto.response.HiringManagerOptionDto;
 import com.hirewise.be.dto.response.JobDetailResponseDto;
 import com.hirewise.be.dto.response.JobSummaryResponseDto;
 
@@ -57,11 +59,28 @@ public final class JobMapper {
                 .benefits(job.getBenefits())
                 .status(job.getStatus())
                 .recruiterName(job.getRecruiter() != null ? job.getRecruiter().getFullName() : null)
+                .hiringManagerId(job.getHiringManager() != null ? job.getHiringManager().getId() : null)
                 .hiringManagerName(job.getHiringManager() != null ? job.getHiringManager().getFullName() : null)
                 .pipelineTemplateId(job.getPipelineTemplate() != null ? job.getPipelineTemplate().getId() : null)
                 .pipelineTemplateName(job.getPipelineTemplate() != null ? job.getPipelineTemplate().getName() : null)
                 .createdAt(job.getCreatedAt())
                 .updatedAt(job.getUpdatedAt())
+                .build();
+    }
+
+    /**
+     * Converts an active HIRING_MANAGER user into a pickable option for the
+     * "chọn Hiring Manager" dropdown on the Job create/edit form (UC-12).
+     *
+     * @param user a user holding the {@code HIRING_MANAGER} role
+     * @return the corresponding option DTO
+     */
+    public static HiringManagerOptionDto toHiringManagerOptionDto(User user) {
+        return HiringManagerOptionDto.builder()
+                .id(user.getId())
+                .fullName(user.getFullName())
+                .email(user.getEmail())
+                .departmentName(user.getDepartment() != null ? user.getDepartment().getName() : null)
                 .build();
     }
 }

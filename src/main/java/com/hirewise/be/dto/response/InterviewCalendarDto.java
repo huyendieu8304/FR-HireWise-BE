@@ -31,4 +31,5 @@ public class InterviewCalendarDto {
     private String locationOrLink;
     private InterviewStatus status;
     private List<String> interviewerNames;
+    private String notes;
 }

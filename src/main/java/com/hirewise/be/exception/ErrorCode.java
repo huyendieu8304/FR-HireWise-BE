@@ -46,6 +46,8 @@ public enum ErrorCode {
     PIPELINE_TEMPLATE_NOT_FOUND("error.pipeline_template_not_found"),
     PIPELINE_STAGE_CODE_ALREADY_EXISTS("error.pipeline_stage_code_already_exists"),
     PIPELINE_STAGE_NOT_FOUND("error.pipeline_stage_not_found"),
+    /** UC-40 team decision: an ACTIVE template's Stage structure (incl. SLA) is frozen. */
+    PIPELINE_TEMPLATE_NOT_EDITABLE("error.pipeline_template_not_editable"),
 
     // UC-05 Reorder Pipeline Stages
     PIPELINE_STAGE_REORDER_MISMATCH("error.pipeline_stage_reorder_mismatch"),
@@ -70,6 +72,10 @@ public enum ErrorCode {
     JOB_SALARY_RANGE_INVALID("error.job_salary_range_invalid"),
     JOB_DEADLINE_IN_PAST("error.job_deadline_in_past"),
     JOB_POSITION_NOT_EDITABLE("error.job_position_not_editable"),
+    /** UC-12: Recruiter picked a {@code hiringManagerId} that doesn't correspond to any user. */
+    HIRING_MANAGER_NOT_FOUND("error.hiring_manager_not_found"),
+    /** UC-12: the picked user exists but doesn't hold the HIRING_MANAGER role. */
+    USER_NOT_A_HIRING_MANAGER("error.user_not_a_hiring_manager"),
 
     // UC-04 (prerequisite added for UC-13): activate a Pipeline Template (BR-PIPE-01/ME-11)
     PIPELINE_TEMPLATE_NOT_READY_TO_ACTIVATE("error.pipeline_template_not_ready_to_activate"),
@@ -99,6 +105,8 @@ public enum ErrorCode {
     INTERVIEW_INTERVIEWER_NOT_FOUND("error.interview_interviewer_not_found"),
     INTERVIEW_INTERVIEWER_INACTIVE("error.interview_interviewer_inactive"),
     INTERVIEW_TIME_IN_PAST("error.interview_time_in_past"),
+    INTERVIEWER_TIME_CONFLICT("error.interviewer_time_conflict"),
+    INTERVIEWER_TIME_CONFLICT_DETAILED("error.interviewer_time_conflict_detailed"),
 
     // UC-36 Generate an Offer Letter from a template (BR-OFFER-01/02, EX-01)
     OFFER_TEMPLATE_NOT_FOUND("error.offer_template_not_found"),
@@ -137,6 +145,72 @@ public enum ErrorCode {
     OFFER_ALREADY_SIGNED("error.offer_already_signed"),
     OFFER_NOT_SIGNABLE("error.offer_not_signable"),
     PIPELINE_MISSING_TERMINAL_SUCCESS_STAGE("error.pipeline_missing_terminal_success_stage"),
+
+    // UC-25, UC-34, UC-35 Self-service Booking
+    BOOKING_TOKEN_INVALID("error.booking_token_invalid"),
+    BOOKING_TOKEN_EXPIRED("error.booking_token_expired"),
+    BOOKING_SLOT_NOT_FOUND("error.booking_slot_not_found"),
+    BOOKING_SLOT_UNAVAILABLE("error.booking_slot_unavailable"),
+    BOOKING_NO_OPEN_SLOTS("error.booking_no_open_slots"),
+
+    // UC-45 Publish an approved Job Position to the Job Board (BR-APR-03)
+    /** [Dang tin] pressed on a Job that is not in APPROVED status. */
+    JOB_POSITION_NOT_PUBLISHABLE("error.job_position_not_publishable"),
+
+    // UC-44 Close / pause / resume a published Job Position (BR-JOB-04/05)
+    /** Pause/Close/Resume attempted from a status that does not allow it. */
+    JOB_STATUS_TRANSITION_NOT_ALLOWED("error.job_status_transition_not_allowed"),
+    /** ME-38: the Job is Paused or Closed, so its JD/salary can no longer be edited. */
+    JOB_POSITION_PAUSED_OR_CLOSED("error.job_position_paused_or_closed"),
+
+    // UC-19/UC-31/UC-32 Share a Job Position to external channels (BR-POST-01/02)
+    /** BR-POST-01: only a Published Job may be shared to an external channel. */
+    JOB_NOT_SHAREABLE("error.job_not_shareable"),
+    PUBLISHING_CHANNEL_NOT_FOUND("error.publishing_channel_not_found"),
+    /** UC-31 EX-01: HR Admin has switched this channel off (UC-19). */
+    PUBLISHING_CHANNEL_DISABLED("error.publishing_channel_disabled"),
+
+    // UC-27/UC-28 Structured Scorecard
+    INTERVIEW_NOT_FOUND("error.interview_not_found"),
+    SCORECARD_TEMPLATE_NOT_FOUND("error.scorecard_template_not_found"),
+    /** EX-01: total weight = 0 would make BR-SCORE-02's division meaningless. */
+    SCORECARD_TEMPLATE_TOTAL_WEIGHT_ZERO("error.scorecard_template_total_weight_zero"),
+    SCORECARD_TEMPLATE_NO_CRITERIA("error.scorecard_template_no_criteria"),
+    SCORECARD_SUBMISSION_NOT_FOUND("error.scorecard_submission_not_found"),
+    /** Layer 4: neither an assigned Interviewer of this Interview, nor its Job's Hiring Manager. */
+    SCORECARD_NOT_AN_EVALUATOR("error.scorecard_not_an_evaluator"),
+    /** BR-SCORE-03: locked_at is set - only the HR Admin-only unlock action can clear it. */
+    SCORECARD_SUBMISSION_LOCKED("error.scorecard_submission_locked"),
+    /** BR-SCORE-01/EX-01, ME-29: a required criterion has no score, or the overall comment is blank. */
+    SCORECARD_SUBMISSION_INCOMPLETE("error.scorecard_submission_incomplete"),
+    SCORECARD_CRITERION_NOT_IN_TEMPLATE("error.scorecard_criterion_not_in_template"),
+    /** UC-28 step 2/US-INT-02: score submitted for a criterion exceeds that criterion's own max_score. */
+    SCORECARD_SCORE_EXCEEDS_MAX("error.scorecard_score_exceeds_max"),
+    /** Unlock attempted on a submission that was never locked in the first place. */
+    SCORECARD_SUBMISSION_NOT_LOCKED("error.scorecard_submission_not_locked"),
+    /** No (Job, Stage) Scorecard has been configured for this pair yet. */
+    JOB_STAGE_SCORECARD_NOT_FOUND("error.job_stage_scorecard_not_found"),
+    /** UC-27 step 3: a Scorecard can only be configured for an INTERVIEW-type Stage. */
+    SCORECARD_STAGE_NOT_INTERVIEW_TYPE("error.scorecard_stage_not_interview_type"),
+    /** UC-14/15 hard gate: at least 1 INTERVIEW-type Stage of the Job's pipeline has no Scorecard configured. */
+    JOB_APPROVAL_SCORECARD_MISSING("error.job_approval_scorecard_missing"),
+
+    // UC-42/UC-43 Reporting dashboards (module M20)
+    /**
+     * The workbook could not be serialised. Note that ME-37 - "no data matches
+     * the filter" - is deliberately NOT an error code: an empty report is a
+     * successful 200 that the front end renders as an empty state.
+     */
+    REPORT_EXPORT_FAILED("error.report_export_failed"),
+
+    // UC-40/UC-41 SLA Monitoring (module M19)
+    /**
+     * A Terminal-type Stage (TERMINAL_SUCCESS/TERMINAL_REJECTED) is where an
+     * Application's journey ENDS, not somewhere it can be "stuck" - SlaBreachWorker
+     * excludes terminal Stages outright, so a configured SLA there would silently
+     * never do anything. Clearing (null) is always allowed regardless.
+     */
+    SLA_NOT_APPLICABLE_TO_TERMINAL_STAGE("error.sla_not_applicable_to_terminal_stage"),
 
     ;
 

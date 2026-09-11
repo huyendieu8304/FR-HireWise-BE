@@ -284,6 +284,7 @@ public class OfferSigningService {
         application.setCurrentStage(toStage);
         application.setStatus(ApplicationStatus.HIRED);
         application.setLastStageChangedAt(now);
+        application.setSlaAlertSentAt(null); // UC-41: fresh stage-dwell, un-alerted
         application.setUpdatedAt(now);
         applicationRepository.save(application);
 

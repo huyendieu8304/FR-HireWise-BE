@@ -48,6 +48,20 @@ public class Interview {
     @JoinColumn(name = "scheduled_by", nullable = false)
     private User scheduledBy;
 
+    /**
+     * The Pipeline Stage this interview instance is FOR, captured once at
+     * schedule time (see {@code InterviewService#scheduleInterview}, which
+     * already knows the exact target Stage right when it creates this row).
+     * Anchors the Scorecard lookup (UC-28) permanently to the correct
+     * (Job, Stage) pair, independent of wherever the Application's CURRENT
+     * stage may have moved on to by the time someone actually scores it.
+     * {@code null} only for Interview rows created before this field
+     * existed - those simply have no working Scorecard tab.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "pipeline_stage_id")
+    private PipelineStage pipelineStage;
+
     @Column(name = "interview_date", nullable = false)
     private LocalDate interviewDate;
 

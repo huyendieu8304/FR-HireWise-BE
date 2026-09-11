@@ -85,5 +85,14 @@ public class JobApprovalDetailResponseDto {
 
     /** Danh sách các bước (stages) trong quy trình tuyển dụng, sắp xếp theo thứ tự position. */
     private java.util.List<PipelineStageResponseDto> pipelineStages;
+
+    /**
+     * UC-27 hard gate (per team discussion): trạng thái cấu hình Scorecard
+     * của TỪNG Stage loại INTERVIEW trong pipeline của job này - Hiring
+     * Manager phải cấu hình đầy đủ (mọi phần tử {@code configured = true})
+     * trước khi được phép Approve. Rỗng nếu pipeline không có Stage
+     * INTERVIEW nào.
+     */
+    private java.util.List<InterviewStageScorecardStatusDto> interviewStageScorecards;
 }
 

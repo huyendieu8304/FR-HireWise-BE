@@ -18,6 +18,8 @@ public final class PermissionCodes {
     public static final String USER_VIEW = "USER_VIEW";
     public static final String ROLE_ASSIGN = "ROLE_ASSIGN";
     public static final String PIPELINE_MANAGE = "PIPELINE_MANAGE";
+    /** Read-only: list Pipeline Templates/Stages - e.g. Recruiter picking one for UC-13 (V40). */
+    public static final String PIPELINE_VIEW = "PIPELINE_VIEW";
     public static final String EMAIL_TEMPLATE_MANAGE = "EMAIL_TEMPLATE_MANAGE";
     public static final String INTEGRATION_MANAGE = "INTEGRATION_MANAGE";
 
@@ -27,6 +29,8 @@ public final class PermissionCodes {
     public static final String JOB_APPROVE = "JOB_APPROVE";
     public static final String JOB_VIEW = "JOB_VIEW";
     public static final String JOB_PUBLISH = "JOB_PUBLISH";
+    /** UC-44: close, pause or resume a Job that is already Published. */
+    public static final String JOB_CLOSE_PAUSE = "JOB_CLOSE_PAUSE";
 
     public static final String APPLICATION_VIEW = "APPLICATION_VIEW";
     public static final String APPLICATION_MOVE_STAGE = "APPLICATION_MOVE_STAGE";
@@ -39,6 +43,8 @@ public final class PermissionCodes {
 
     public static final String SCORECARD_TEMPLATE_MANAGE = "SCORECARD_TEMPLATE_MANAGE";
     public static final String SCORECARD_SUBMIT = "SCORECARD_SUBMIT";
+    /** BR-SCORE-03: narrower than SCORECARD_TEMPLATE_MANAGE - HR Admin only, not Hiring Manager (seeded in V39). */
+    public static final String SCORECARD_UNLOCK = "SCORECARD_UNLOCK";
 
     public static final String OFFER_CREATE = "OFFER_CREATE";
     public static final String OFFER_SEND = "OFFER_SEND";

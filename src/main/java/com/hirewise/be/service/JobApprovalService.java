@@ -11,12 +11,14 @@ import com.hirewise.be.domain.ScopeType;
 import com.hirewise.be.domain.User;
 import com.hirewise.be.domain.UserAccessScope;
 import com.hirewise.be.dto.PagedResponseDto;
+import com.hirewise.be.dto.response.InterviewStageScorecardStatusDto;
 import com.hirewise.be.dto.response.JobApprovalDetailResponseDto;
 import com.hirewise.be.dto.response.PendingApprovalJobSummaryResponseDto;
 import com.hirewise.be.event.OutboxEventPublisher;
 import com.hirewise.be.event.OutboxEventType;
 import com.hirewise.be.event.OutboxPayloads;
 import com.hirewise.be.exception.BadRequestException;
+import com.hirewise.be.exception.BusinessConflictException;
 import com.hirewise.be.exception.ErrorCode;
 import com.hirewise.be.exception.ResourceNotFoundException;
 import com.hirewise.be.repository.DepartmentRepository;
@@ -64,6 +66,7 @@ public class JobApprovalService {
     UserRepository userRepository;
     DepartmentRepository departmentRepository;
     PipelineStageRepository pipelineStageRepository;
+    JobStageScorecardService jobStageScorecardService;
     AccessControlService accessControlService;
     OutboxEventPublisher outboxEventPublisher;
     Clock clock;
@@ -166,6 +169,7 @@ public class JobApprovalService {
     @Transactional
     public void approveJob(UUID jobId, CurrentUser currentUser) {
         JobPosition job = loadJobForDecision(jobId, currentUser);
+        requireEveryInterviewStageScorecardConfigured(job);
         Instant now = Instant.now(clock);
 
         // Update job status
@@ -264,6 +268,24 @@ public class JobApprovalService {
         }
 
         return job;
+    }
+
+    /**
+     * UC-27 hard gate (team decision): every {@code INTERVIEW}-type Stage of
+     * the Job's pipeline must have an {@code ACTIVE} Scorecard configured
+     * before it can be Approved - fail-fast here, before any status is
+     * mutated, rather than letting the Job through and discovering the gap
+     * only once an Interview for that Stage is actually scheduled.
+     */
+    private void requireEveryInterviewStageScorecardConfigured(JobPosition job) {
+        List<InterviewStageScorecardStatusDto> stageStatuses = jobStageScorecardService.getStageStatusForJob(job);
+        List<String> missingStageNames = stageStatuses.stream()
+                .filter(s -> !s.isConfigured())
+                .map(InterviewStageScorecardStatusDto::getStageName)
+                .toList();
+        if (!missingStageNames.isEmpty()) {
+            throw new BusinessConflictException(ErrorCode.JOB_APPROVAL_SCORECARD_MISSING, String.join(", ", missingStageNames));
+        }
     }
 
     /**
@@ -382,6 +404,7 @@ public class JobApprovalService {
                 .pipelineTemplateId(pipelineTemplateId)
                 .pipelineTemplateName(pipelineTemplateName)
                 .pipelineStages(pipelineStages)
+                .interviewStageScorecards(jobStageScorecardService.getStageStatusForJob(job))
                 .build();
     }
 }
