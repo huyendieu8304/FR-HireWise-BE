@@ -45,6 +45,19 @@ public interface PipelineStageRepository extends JpaRepository<PipelineStage, Lo
     boolean existsByPipelineTemplate_IdAndCode(Long templateId, String code);
 
     /**
+     * Same check as {@link #existsByPipelineTemplate_IdAndCode}, but excludes
+     * the Stage being edited itself - used when editing an existing Stage
+     * (UC-04/edit) so keeping its own unchanged {@code code} is never
+     * rejected as "already used".
+     *
+     * @param templateId id of the parent pipeline template
+     * @param code       candidate stage code
+     * @param stageId    id of the stage being edited, excluded from the check
+     * @return {@code true} if a DIFFERENT stage with this code already exists in the template
+     */
+    boolean existsByPipelineTemplate_IdAndCodeAndIdNot(Long templateId, String code, Long stageId);
+
+    /**
      * BR-PIPE-04: the current highest {@code position} in the template, used
      * to compute the next position for a newly-appended stage.
      *

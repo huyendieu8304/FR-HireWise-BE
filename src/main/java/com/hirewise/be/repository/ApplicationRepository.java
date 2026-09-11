@@ -97,4 +97,29 @@ public interface ApplicationRepository extends JpaRepository<Application, UUID> 
      * @return number of applications for this job, whatever their source
      */
     long countByJobPosition_Id(UUID jobPositionId);
+
+    /**
+     * UC-41 (SLA Monitoring): every Application currently sitting in a
+     * non-terminal Stage that has an SLA threshold configured - the
+     * candidate set {@code SlaMonitoringService} then narrows down to actual
+     * breaches by comparing {@code lastStageChangedAt} against
+     * {@code currentStage.slaHours} in Java (a plain hour-count, not worth a
+     * database-specific interval expression). Deliberately NOT filtered on
+     * {@code slaAlertSentAt} here - both the read-only alert list (always
+     * shows every CURRENT breach) and {@code SlaBreachWorker} (only emails
+     * the unalerted ones) start from this same candidate set.
+     *
+     * @return candidates for SLA breach evaluation, with candidate/stage/job/
+     *         hiring-manager eagerly fetched to avoid N+1 while grouping
+     */
+    @Query("""
+            SELECT a FROM Application a
+            JOIN FETCH a.candidate
+            JOIN FETCH a.currentStage s
+            JOIN FETCH a.jobPosition j
+            LEFT JOIN FETCH j.hiringManager
+            WHERE s.slaHours IS NOT NULL AND s.terminal = false
+            ORDER BY a.lastStageChangedAt ASC
+            """)
+    List<Application> findSlaBreachCandidates();
 }

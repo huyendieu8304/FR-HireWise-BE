@@ -11,6 +11,8 @@ import com.hirewise.be.domain.StageType;
 import com.hirewise.be.dto.request.CreatePipelineStageRequestDto;
 import com.hirewise.be.dto.request.CreatePipelineTemplateRequestDto;
 import com.hirewise.be.dto.request.ReorderPipelineStagesRequestDto;
+import com.hirewise.be.dto.request.UpdateStageRequestDto;
+import com.hirewise.be.dto.request.UpdateStageSlaRequestDto;
 import com.hirewise.be.dto.response.PipelineStageResponseDto;
 import com.hirewise.be.dto.response.PipelineTemplateResponseDto;
 import com.hirewise.be.exception.BadRequestException;
@@ -246,6 +248,33 @@ class PipelineServiceTest {
     }
 
     @Test
+    void createStage_terminalStageTypeWithSlaHours_throwsBadRequest_UC40() {
+        when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.of(templateWithDepartment(null)));
+        // sla_hours vô nghĩa cho 1 Stage kết thúc pipeline - SlaBreachWorker loại
+        // trừ Stage Terminal ngay từ đầu, giá trị này sẽ không bao giờ có tác dụng.
+        CreatePipelineStageRequestDto request =
+                new CreatePipelineStageRequestDto("Hired", "HIRED", StageType.TERMINAL_SUCCESS, false, 24);
+
+        assertThatThrownBy(() -> pipelineService.createStage(TEMPLATE_ID, request, hrAdmin))
+                .isInstanceOf(BadRequestException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.SLA_NOT_APPLICABLE_TO_TERMINAL_STAGE);
+        verify(pipelineStageRepository, never()).save(any());
+    }
+
+    @Test
+    void createStage_terminalCheckboxWithSlaHours_throwsBadRequest_UC40() {
+        when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.of(templateWithDepartment(null)));
+        // Không chỉ StageType TERMINAL_* mới bị chặn - checkbox "Is Terminal" tick thủ
+        // công trên 1 StageType khác cũng phải bị chặn y hệt (cùng điều kiện `terminal`).
+        CreatePipelineStageRequestDto request =
+                new CreatePipelineStageRequestDto("Custom End", "CUSTOM_END", StageType.SCREENING, true, 24);
+
+        assertThatThrownBy(() -> pipelineService.createStage(TEMPLATE_ID, request, hrAdmin))
+                .isInstanceOf(BadRequestException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.SLA_NOT_APPLICABLE_TO_TERMINAL_STAGE);
+    }
+
+    @Test
     void createStage_departmentScopedTemplate_checksAccessWithTemplateDepartment() {
         when(pipelineTemplateRepository.findById(TEMPLATE_ID))
                 .thenReturn(Optional.of(templateWithDepartment(DEPARTMENT_ID)));
@@ -260,6 +289,170 @@ class PipelineServiceTest {
         // PARENT TEMPLATE's department, not left as ResourceContext.none().
         verify(accessControlService).checkAccess(hrAdmin, PermissionCodes.PIPELINE_MANAGE,
                 ResourceContext.department(DEPARTMENT_ID));
+    }
+
+    // -------------------------------------------------------------------
+    // Edit an existing Stage's full structure (name/code/type/terminal/SLA)
+    // - only reachable while the parent template is still DRAFT, same as
+    // createStage/reorderStages/deleteStage/updateStageSla.
+    // -------------------------------------------------------------------
+
+    @Test
+    void updateStage_unknownTemplate_throwsResourceNotFound() {
+        when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.empty());
+        UpdateStageRequestDto request = new UpdateStageRequestDto("New", "NEW", StageType.INTAKE, false, null);
+
+        assertThatThrownBy(() -> pipelineService.updateStage(TEMPLATE_ID, 1L, request, hrAdmin))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.PIPELINE_TEMPLATE_NOT_FOUND);
+        verify(accessControlService, never()).checkAccess(any(), any(), any());
+    }
+
+    @Test
+    void updateStage_stageNotFound_throwsResourceNotFound() {
+        PipelineTemplate template = templateWithDepartment(null);
+        when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.of(template));
+        when(pipelineStageRepository.findById(1L)).thenReturn(Optional.empty());
+        UpdateStageRequestDto request = new UpdateStageRequestDto("New", "NEW", StageType.INTAKE, false, null);
+
+        assertThatThrownBy(() -> pipelineService.updateStage(TEMPLATE_ID, 1L, request, hrAdmin))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.PIPELINE_STAGE_NOT_FOUND);
+    }
+
+    @Test
+    void updateStage_stageBelongsToAnotherTemplate_throwsResourceNotFound() {
+        PipelineTemplate template = templateWithDepartment(null);
+        PipelineTemplate otherTemplate = PipelineTemplate.builder().id(99L).name("Other")
+                .status(PipelineTemplateStatus.DRAFT).createdAt(NOW).updatedAt(NOW).build();
+        PipelineStage stageOfOtherTemplate = stage(1L, 1, otherTemplate);
+        when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.of(template));
+        when(pipelineStageRepository.findById(1L)).thenReturn(Optional.of(stageOfOtherTemplate));
+        UpdateStageRequestDto request = new UpdateStageRequestDto("New", "NEW", StageType.INTAKE, false, null);
+
+        assertThatThrownBy(() -> pipelineService.updateStage(TEMPLATE_ID, 1L, request, hrAdmin))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.PIPELINE_STAGE_NOT_FOUND);
+    }
+
+    @Test
+    void updateStage_softDeletedStage_throwsResourceNotFound() {
+        PipelineTemplate template = templateWithDepartment(null);
+        PipelineStage inactiveStage = PipelineStage.builder()
+                .id(2L).pipelineTemplate(template).name("Old").code("OLD")
+                .stageType(StageType.SCREENING).position(2).terminal(false).active(false)
+                .createdAt(NOW).updatedAt(NOW).build();
+        when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.of(template));
+        when(pipelineStageRepository.findById(2L)).thenReturn(Optional.of(inactiveStage));
+        UpdateStageRequestDto request = new UpdateStageRequestDto("New", "NEW", StageType.INTAKE, false, null);
+
+        assertThatThrownBy(() -> pipelineService.updateStage(TEMPLATE_ID, 2L, request, hrAdmin))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.PIPELINE_STAGE_NOT_FOUND);
+    }
+
+    @Test
+    void updateStage_duplicateCodeOfAnotherStage_throwsBusinessConflict_EX01() {
+        PipelineTemplate template = templateWithDepartment(null);
+        PipelineStage stage1 = stage(1L, 1, template);
+        when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.of(template));
+        when(pipelineStageRepository.findById(1L)).thenReturn(Optional.of(stage1));
+        when(pipelineStageRepository.existsByPipelineTemplate_IdAndCodeAndIdNot(TEMPLATE_ID, "TAKEN", 1L))
+                .thenReturn(true);
+        UpdateStageRequestDto request = new UpdateStageRequestDto("Renamed", "TAKEN", StageType.SCREENING, false, null);
+
+        assertThatThrownBy(() -> pipelineService.updateStage(TEMPLATE_ID, 1L, request, hrAdmin))
+                .isInstanceOf(BusinessConflictException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.PIPELINE_STAGE_CODE_ALREADY_EXISTS);
+        verify(pipelineStageRepository, never()).save(any());
+    }
+
+    @Test
+    void updateStage_keepingOwnUnchangedCode_isAllowed() {
+        // BR-PIPE-02's uniqueness check must exclude the stage being edited itself -
+        // otherwise every edit that doesn't also change the code would wrongly 409.
+        PipelineTemplate template = templateWithDepartment(null);
+        PipelineStage stage1 = stage(1L, 1, template);
+        when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.of(template));
+        when(pipelineStageRepository.findById(1L)).thenReturn(Optional.of(stage1));
+        when(pipelineStageRepository.existsByPipelineTemplate_IdAndCodeAndIdNot(TEMPLATE_ID, stage1.getCode(), 1L))
+                .thenReturn(false);
+        UpdateStageRequestDto request =
+                new UpdateStageRequestDto("Renamed", stage1.getCode(), StageType.SCREENING, false, null);
+
+        pipelineService.updateStage(TEMPLATE_ID, 1L, request, hrAdmin);
+
+        assertThat(stage1.getName()).isEqualTo("Renamed");
+        verify(pipelineStageRepository).save(stage1);
+    }
+
+    @Test
+    void updateStage_savesEveryEditedField() {
+        PipelineTemplate template = templateWithDepartment(null);
+        PipelineStage stage1 = stage(1L, 1, template);
+        when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.of(template));
+        when(pipelineStageRepository.findById(1L)).thenReturn(Optional.of(stage1));
+        when(pipelineStageRepository.existsByPipelineTemplate_IdAndCodeAndIdNot(TEMPLATE_ID, "RENAMED", 1L))
+                .thenReturn(false);
+        when(applicationRepository.countByCurrentStage_Id(1L)).thenReturn(0L);
+        UpdateStageRequestDto request =
+                new UpdateStageRequestDto("Renamed", "RENAMED", StageType.INTERVIEW, false, 24);
+
+        PipelineStageResponseDto response = pipelineService.updateStage(TEMPLATE_ID, 1L, request, hrAdmin);
+
+        assertThat(stage1.getName()).isEqualTo("Renamed");
+        assertThat(stage1.getCode()).isEqualTo("RENAMED");
+        assertThat(stage1.getStageType()).isEqualTo(StageType.INTERVIEW);
+        assertThat(stage1.getSlaHours()).isEqualTo(24);
+        assertThat(response.getName()).isEqualTo("Renamed");
+    }
+
+    @Test
+    void updateStage_terminalStageTypeWithSlaHours_throwsBadRequest_UC40() {
+        PipelineTemplate template = templateWithDepartment(null);
+        PipelineStage stage1 = stage(1L, 1, template);
+        when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.of(template));
+        when(pipelineStageRepository.findById(1L)).thenReturn(Optional.of(stage1));
+        when(pipelineStageRepository.existsByPipelineTemplate_IdAndCodeAndIdNot(TEMPLATE_ID, "HIRED", 1L))
+                .thenReturn(false);
+        UpdateStageRequestDto request =
+                new UpdateStageRequestDto("Hired", "HIRED", StageType.TERMINAL_SUCCESS, false, 24);
+
+        assertThatThrownBy(() -> pipelineService.updateStage(TEMPLATE_ID, 1L, request, hrAdmin))
+                .isInstanceOf(BadRequestException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.SLA_NOT_APPLICABLE_TO_TERMINAL_STAGE);
+        verify(pipelineStageRepository, never()).save(any());
+    }
+
+    @Test
+    void updateStage_changingStageTypeToTerminal_forcesIsTerminalTrue() {
+        // Changing a Stage's Type to one of the TERMINAL_* values must also force
+        // `terminal=true`, exactly like createStage - the flag isn't sticky/independent.
+        PipelineTemplate template = templateWithDepartment(null);
+        PipelineStage stage1 = stage(1L, 1, template);
+        when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.of(template));
+        when(pipelineStageRepository.findById(1L)).thenReturn(Optional.of(stage1));
+        when(pipelineStageRepository.existsByPipelineTemplate_IdAndCodeAndIdNot(TEMPLATE_ID, "HIRED", 1L))
+                .thenReturn(false);
+        UpdateStageRequestDto request =
+                new UpdateStageRequestDto("Hired", "HIRED", StageType.TERMINAL_SUCCESS, false, null);
+
+        pipelineService.updateStage(TEMPLATE_ID, 1L, request, hrAdmin);
+
+        assertThat(stage1.isTerminal()).isTrue();
+    }
+
+    @Test
+    void updateStage_templateActive_throwsBusinessConflict() {
+        PipelineTemplate template = templateWithDepartment(null);
+        template.setStatus(PipelineTemplateStatus.ACTIVE);
+        when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.of(template));
+        UpdateStageRequestDto request = new UpdateStageRequestDto("New", "NEW", StageType.INTAKE, false, null);
+
+        assertThatThrownBy(() -> pipelineService.updateStage(TEMPLATE_ID, 1L, request, hrAdmin))
+                .isInstanceOf(BusinessConflictException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.PIPELINE_TEMPLATE_NOT_EDITABLE);
+        verify(pipelineStageRepository, never()).findById(any());
     }
 
     @Test
@@ -455,6 +648,182 @@ class PipelineServiceTest {
 
         verify(accessControlService).checkAccess(hrAdmin, PermissionCodes.PIPELINE_MANAGE,
                 ResourceContext.department(DEPARTMENT_ID));
+    }
+
+    // -------------------------------------------------------------------
+    // Configure Stage SLA (US-MGR-04, UC-40) - team decision: HR Admin
+    // configures this alongside the rest of a Stage's structure, gated by
+    // the same PIPELINE_MANAGE as createStage/reorderStages/deleteStage.
+    // -------------------------------------------------------------------
+
+    @Test
+    void updateStageSla_checksAccessWithPipelineManage() {
+        PipelineTemplate template = templateWithDepartment(DEPARTMENT_ID);
+        PipelineStage stage1 = stage(1L, 1, template);
+        when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.of(template));
+        when(pipelineStageRepository.findById(1L)).thenReturn(Optional.of(stage1));
+
+        pipelineService.updateStageSla(TEMPLATE_ID, 1L, new UpdateStageSlaRequestDto(48), hrAdmin);
+
+        verify(accessControlService).checkAccess(hrAdmin, PermissionCodes.PIPELINE_MANAGE,
+                ResourceContext.department(DEPARTMENT_ID));
+    }
+
+    @Test
+    void updateStageSla_setsHours_savesStage() {
+        PipelineTemplate template = templateWithDepartment(null);
+        PipelineStage stage1 = stage(1L, 1, template);
+        when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.of(template));
+        when(pipelineStageRepository.findById(1L)).thenReturn(Optional.of(stage1));
+        when(applicationRepository.countByCurrentStage_Id(1L)).thenReturn(2L);
+
+        PipelineStageResponseDto response =
+                pipelineService.updateStageSla(TEMPLATE_ID, 1L, new UpdateStageSlaRequestDto(72), hrAdmin);
+
+        assertThat(stage1.getSlaHours()).isEqualTo(72);
+        assertThat(response.getSlaHours()).isEqualTo(72);
+        assertThat(response.getApplicationCount()).isEqualTo(2L);
+        verify(pipelineStageRepository).save(stage1);
+    }
+
+    @Test
+    void updateStageSla_nullClearsExistingThreshold() {
+        PipelineTemplate template = templateWithDepartment(null);
+        PipelineStage stage1 = stage(1L, 1, template);
+        stage1.setSlaHours(24);
+        when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.of(template));
+        when(pipelineStageRepository.findById(1L)).thenReturn(Optional.of(stage1));
+
+        pipelineService.updateStageSla(TEMPLATE_ID, 1L, new UpdateStageSlaRequestDto(null), hrAdmin);
+
+        assertThat(stage1.getSlaHours()).isNull();
+    }
+
+    @Test
+    void updateStageSla_terminalStage_throwsBadRequest_UC40() {
+        PipelineTemplate template = templateWithDepartment(null);
+        PipelineStage terminalStage = PipelineStage.builder()
+                .id(2L).pipelineTemplate(template).name("Hired").code("HIRED")
+                .stageType(StageType.TERMINAL_SUCCESS).position(2).terminal(true).active(true)
+                .createdAt(NOW).updatedAt(NOW).build();
+        when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.of(template));
+        when(pipelineStageRepository.findById(2L)).thenReturn(Optional.of(terminalStage));
+
+        assertThatThrownBy(() ->
+                pipelineService.updateStageSla(TEMPLATE_ID, 2L, new UpdateStageSlaRequestDto(24), hrAdmin))
+                .isInstanceOf(BadRequestException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.SLA_NOT_APPLICABLE_TO_TERMINAL_STAGE);
+        verify(pipelineStageRepository, never()).save(any());
+    }
+
+    @Test
+    void updateStageSla_terminalStage_clearingToNullIsStillAllowed() {
+        // Dọn dữ liệu cũ (từ trước khi có validation này) vẫn phải làm được -
+        // chỉ chặn việc ĐẶT thêm giá trị mới, không chặn việc xóa giá trị cũ đi.
+        PipelineTemplate template = templateWithDepartment(null);
+        PipelineStage terminalStage = PipelineStage.builder()
+                .id(2L).pipelineTemplate(template).name("Hired").code("HIRED")
+                .stageType(StageType.TERMINAL_SUCCESS).position(2).terminal(true).active(true).slaHours(24)
+                .createdAt(NOW).updatedAt(NOW).build();
+        when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.of(template));
+        when(pipelineStageRepository.findById(2L)).thenReturn(Optional.of(terminalStage));
+
+        pipelineService.updateStageSla(TEMPLATE_ID, 2L, new UpdateStageSlaRequestDto(null), hrAdmin);
+
+        assertThat(terminalStage.getSlaHours()).isNull();
+        verify(pipelineStageRepository).save(terminalStage);
+    }
+
+    @Test
+    void updateStageSla_stageBelongsToAnotherTemplate_throwsResourceNotFound() {
+        PipelineTemplate template = templateWithDepartment(null);
+        PipelineTemplate otherTemplate = PipelineTemplate.builder().id(99L).name("Other")
+                .status(PipelineTemplateStatus.DRAFT).createdAt(NOW).updatedAt(NOW).build();
+        PipelineStage stageOfOtherTemplate = stage(1L, 1, otherTemplate);
+        when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.of(template));
+        when(pipelineStageRepository.findById(1L)).thenReturn(Optional.of(stageOfOtherTemplate));
+
+        assertThatThrownBy(() ->
+                pipelineService.updateStageSla(TEMPLATE_ID, 1L, new UpdateStageSlaRequestDto(24), hrAdmin))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.PIPELINE_STAGE_NOT_FOUND);
+        verify(pipelineStageRepository, never()).save(any());
+    }
+
+    @Test
+    void updateStageSla_softDeletedStage_throwsResourceNotFound() {
+        PipelineTemplate template = templateWithDepartment(null);
+        PipelineStage inactiveStage = PipelineStage.builder()
+                .id(2L).pipelineTemplate(template).name("Old").code("OLD")
+                .stageType(StageType.SCREENING).position(2).terminal(false).active(false)
+                .createdAt(NOW).updatedAt(NOW).build();
+        when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.of(template));
+        when(pipelineStageRepository.findById(2L)).thenReturn(Optional.of(inactiveStage));
+
+        assertThatThrownBy(() ->
+                pipelineService.updateStageSla(TEMPLATE_ID, 2L, new UpdateStageSlaRequestDto(24), hrAdmin))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.PIPELINE_STAGE_NOT_FOUND);
+    }
+
+    // -------------------------------------------------------------------
+    // ACTIVE template locks every Stage mutation (team decision, redesign
+    // of US-MGR-04) - a live pipeline's structure (incl. SLA) is frozen.
+    // -------------------------------------------------------------------
+
+    private PipelineTemplate activeTemplate() {
+        PipelineTemplate template = templateWithDepartment(null);
+        template.setStatus(PipelineTemplateStatus.ACTIVE);
+        return template;
+    }
+
+    @Test
+    void createStage_templateActive_throwsBusinessConflict() {
+        PipelineTemplate template = activeTemplate();
+        when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.of(template));
+        CreatePipelineStageRequestDto request =
+                new CreatePipelineStageRequestDto("New", "NEW", StageType.SCREENING, false, null);
+
+        assertThatThrownBy(() -> pipelineService.createStage(TEMPLATE_ID, request, hrAdmin))
+                .isInstanceOf(BusinessConflictException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.PIPELINE_TEMPLATE_NOT_EDITABLE);
+        verify(pipelineStageRepository, never()).save(any());
+        // Fail-fast: never even checks access/existing codes once the template is locked.
+        verify(accessControlService, never()).checkAccess(any(), any(), any());
+    }
+
+    @Test
+    void reorderStages_templateActive_throwsBusinessConflict() {
+        PipelineTemplate template = activeTemplate();
+        when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.of(template));
+        ReorderPipelineStagesRequestDto request = new ReorderPipelineStagesRequestDto(List.of(1L, 2L));
+
+        assertThatThrownBy(() -> pipelineService.reorderStages(TEMPLATE_ID, request, hrAdmin))
+                .isInstanceOf(BusinessConflictException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.PIPELINE_TEMPLATE_NOT_EDITABLE);
+    }
+
+    @Test
+    void deleteStage_templateActive_throwsBusinessConflict() {
+        PipelineTemplate template = activeTemplate();
+        when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.of(template));
+
+        assertThatThrownBy(() -> pipelineService.deleteStage(TEMPLATE_ID, 1L, hrAdmin))
+                .isInstanceOf(BusinessConflictException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.PIPELINE_TEMPLATE_NOT_EDITABLE);
+        verify(pipelineStageRepository, never()).findById(any());
+    }
+
+    @Test
+    void updateStageSla_templateActive_throwsBusinessConflict() {
+        PipelineTemplate template = activeTemplate();
+        when(pipelineTemplateRepository.findById(TEMPLATE_ID)).thenReturn(Optional.of(template));
+
+        assertThatThrownBy(() ->
+                pipelineService.updateStageSla(TEMPLATE_ID, 1L, new UpdateStageSlaRequestDto(24), hrAdmin))
+                .isInstanceOf(BusinessConflictException.class)
+                .extracting("errorCode").isEqualTo(ErrorCode.PIPELINE_TEMPLATE_NOT_EDITABLE);
+        verify(pipelineStageRepository, never()).findById(any());
     }
 
     // -------------------------------------------------------------------

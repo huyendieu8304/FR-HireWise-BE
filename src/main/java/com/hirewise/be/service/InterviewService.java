@@ -192,6 +192,7 @@ public class InterviewService {
         application.setCurrentStage(toStage);
         application.setStatus(ApplicationStatus.IN_PROGRESS);
         application.setLastStageChangedAt(now);
+        application.setSlaAlertSentAt(null); // UC-41: fresh stage-dwell, un-alerted
         application.setUpdatedAt(now);
         applicationRepository.save(application);
 
@@ -487,6 +488,7 @@ public class InterviewService {
             application.setCurrentStage(targetStage);
             application.setStatus(ApplicationStatus.IN_PROGRESS);
             application.setLastStageChangedAt(now);
+            application.setSlaAlertSentAt(null); // UC-41: fresh stage-dwell, un-alerted
             application.setUpdatedAt(now);
             applicationRepository.save(application);
 
@@ -691,6 +693,7 @@ public class InterviewService {
             application.setCurrentStage(targetStage);
             application.setStatus(ApplicationStatus.IN_PROGRESS);
             application.setLastStageChangedAt(now);
+            application.setSlaAlertSentAt(null); // UC-41: fresh stage-dwell, un-alerted
             application.setUpdatedAt(now);
             applicationRepository.save(application);
 

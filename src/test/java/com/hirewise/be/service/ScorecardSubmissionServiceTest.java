@@ -195,9 +195,14 @@ class ScorecardSubmissionServiceTest {
 
     @Test
     void getOrCreateForm_asJobsHiringManager_allowedEvenIfNotAParticipant() {
+        // "Hiring Manager cua Job nay" khong con nghia la job.getHiringManager() - do la 1
+        // field CHET (guides/04-DATABASE_DESIGN.md muc 13), khong noi nao trong codebase tung
+        // ghi vao. Sau khi checkAccess (SCORECARD_SUBMIT, da mock no-op o day) xac nhan Access
+        // Scope cua caller da phu Job nay, cau hoi con lai CHI la ho co giu role HIRING_MANAGER
+        // hay khong - xem Javadoc checkEvaluatorEligible.
         UUID jobId = UUID.randomUUID();
         JobPosition job = job(jobId);
-        job.setHiringManager(User.builder().id(EVALUATOR_ID).build());
+        CurrentUser hiringManager = new CurrentUser(EVALUATOR_ID, "hm@test.com", "Hiring Manager", Set.of("HIRING_MANAGER"));
         PipelineStage stage = stage();
         Application application = Application.builder().id(UUID.randomUUID()).jobPosition(job).build();
         Interview interview = Interview.builder().id(INTERVIEW_ID).application(application).pipelineStage(stage)
@@ -213,7 +218,7 @@ class ScorecardSubmissionServiceTest {
                 .thenReturn(List.of());
         when(scorecardScoreRepository.findBySubmission_Id(SUBMISSION_ID)).thenReturn(List.of());
 
-        ScorecardSubmissionResponseDto result = service.getOrCreateForm(INTERVIEW_ID, evaluator);
+        ScorecardSubmissionResponseDto result = service.getOrCreateForm(INTERVIEW_ID, hiringManager);
 
         assertThat(result.getSubmissionId()).isEqualTo(SUBMISSION_ID);
         verify(scorecardSubmissionRepository, never()).save(any()); // reused existing draft, no duplicate
@@ -586,7 +591,8 @@ class ScorecardSubmissionServiceTest {
         when(scorecardSubmissionRepository.findByInterview_Application_IdFetchDetails(applicationId)).thenReturn(List.of());
         when(interviewParticipantRepository.existsByInterview_IdAndInterviewer_Id(scoped.getId(), EVALUATOR_ID))
                 .thenReturn(false);
-        // job(...) never sets a hiringManager, so isHiringManager is false too by construction.
+        // evaluator holds only INTERVIEWER (Set.of("INTERVIEWER")), not HIRING_MANAGER,
+        // so isHiringManager is false too - see checkEvaluatorEligible's Javadoc.
 
         ApplicationScorecardsResponseDto result = service.listForApplication(applicationId, evaluator);
 

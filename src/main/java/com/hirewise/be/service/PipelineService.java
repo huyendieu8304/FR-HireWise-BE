@@ -11,6 +11,8 @@ import com.hirewise.be.domain.StageType;
 import com.hirewise.be.dto.request.CreatePipelineStageRequestDto;
 import com.hirewise.be.dto.request.CreatePipelineTemplateRequestDto;
 import com.hirewise.be.dto.request.ReorderPipelineStagesRequestDto;
+import com.hirewise.be.dto.request.UpdateStageRequestDto;
+import com.hirewise.be.dto.request.UpdateStageSlaRequestDto;
 import com.hirewise.be.dto.response.PipelineStageResponseDto;
 import com.hirewise.be.dto.response.PipelineTemplateResponseDto;
 import com.hirewise.be.exception.BadRequestException;
@@ -41,15 +43,18 @@ import java.util.stream.Collectors;
 
 /**
  * UC-04/UC-05/UC-06: HR Admin configuration of the recruitment Pipeline
- * (Pipeline Template + Stage) - creating stages (UC-04), reordering them
- * (UC-05), and deleting/soft-deleting a stage (UC-06).
+ * (Pipeline Template + Stage) - creating stages (UC-04), editing a stage's
+ * full structure ({@link #updateStage}), reordering them (UC-05), deleting/
+ * soft-deleting a stage (UC-06), and configuring each Stage's SLA threshold
+ * (US-MGR-04, UC-40).
  * <p>
  * A new template always starts in {@link PipelineTemplateStatus#DRAFT} -
  * BR-PIPE-01 (at least 2 stages, including one {@code TERMINAL_SUCCESS}
  * and one {@code TERMINAL_REJECTED}) is a precondition for moving a
- * template to {@code ACTIVE}, which is a different action (not triggered
- * by this use case's normal flow) and is therefore not implemented here
- * either.
+ * template to {@code ACTIVE} (see {@link #activateTemplate}). Once
+ * {@code ACTIVE}, every Stage mutation is permanently frozen (see
+ * {@link #requireTemplateEditable}) - a real Job may already be relying on
+ * this exact structure.
  */
 @Slf4j
 @Service
@@ -157,6 +162,7 @@ public class PipelineService {
         // new stage inherits - a stage has no department of its own (see AccessControlService
         // Javadoc: "resource usually needs to be loaded first to determine which scope it belongs to").
         PipelineTemplate template = findTemplateOrThrow(templateId);
+        requireTemplateEditable(template);
         Long departmentId = template.getDepartment() != null ? template.getDepartment().getId() : null;
         accessControlService.checkAccess(currentUser, PermissionCodes.PIPELINE_MANAGE,
                 ResourceContext.department(departmentId));
@@ -165,9 +171,7 @@ public class PipelineService {
             throw new BusinessConflictException(ErrorCode.PIPELINE_STAGE_CODE_ALREADY_EXISTS, request.getCode());
         }
 
-        // StageType Javadoc: a TERMINAL_SUCCESS/TERMINAL_REJECTED stage is always terminal,
-        // regardless of what the "Is Terminal" checkbox was set to on the request.
-        boolean terminal = request.isTerminal() || isTerminalStageType(request.getStageType());
+        boolean terminal = resolveTerminalFlag(request.isTerminal(), request.getStageType(), request.getSlaHours());
         int nextPosition = pipelineStageRepository.findMaxPosition(templateId) + 1;
         Instant now = Instant.now(clock);
 
@@ -189,6 +193,63 @@ public class PipelineService {
                 stage.getId(), templateId, stage.getCode(), stage.getPosition());
         // A brand-new stage can't have any Application pointing at it yet - no need to query.
         return PipelineMapper.toResponseDto(stage, 0L);
+    }
+
+    /**
+     * Edits an existing Stage's full structure (name/code/type/terminal
+     * flag/SLA) - unlike {@link #updateStageSla}, every field can change
+     * here, not just the SLA threshold. {@code position} is still never
+     * part of this request (UC-05's reorder endpoint owns that). Safe to
+     * allow unconditionally while the template is {@code DRAFT}: a Job can
+     * only be submitted for approval against an {@code ACTIVE} template
+     * (UC-13 precondition), so no Application can possibly reference a
+     * Stage belonging to a still-{@code DRAFT} one yet - there is nothing
+     * "live" here for an edit to break.
+     *
+     * @param templateId  id of the pipeline template the stage belongs to
+     * @param stageId     id of the stage to edit
+     * @param request     the stage's full new name/code/type/terminal flag/SLA
+     * @param currentUser HR Admin performing the edit
+     * @return the updated stage
+     * @throws ResourceNotFoundException if no template exists with {@code templateId}, or no
+     *                                    active stage with {@code stageId} exists within it
+     * @throws BusinessConflictException if the template is already {@code ACTIVE} (see
+     *                                    {@link #requireTemplateEditable}), or if {@code request.code}
+     *                                    is already used by a DIFFERENT stage in the same template (EX-01)
+     * @throws BadRequestException       if {@code request.slaHours} is non-null while the
+     *                                    (possibly newly-chosen) Stage Type/flag resolves to Terminal
+     */
+    @Transactional
+    public PipelineStageResponseDto updateStage(
+            Long templateId, Long stageId, UpdateStageRequestDto request, CurrentUser currentUser) {
+        PipelineTemplate template = findTemplateOrThrow(templateId);
+        requireTemplateEditable(template);
+        Long departmentId = template.getDepartment() != null ? template.getDepartment().getId() : null;
+        accessControlService.checkAccess(currentUser, PermissionCodes.PIPELINE_MANAGE,
+                ResourceContext.department(departmentId));
+
+        // Same "not found" treatment as deleteStage/updateStageSla: a soft-deleted or
+        // foreign stage must never be editable, silently or otherwise.
+        PipelineStage stage = pipelineStageRepository.findById(stageId)
+                .filter(s -> s.getPipelineTemplate().getId().equals(templateId) && s.isActive())
+                .orElseThrow(() -> new ResourceNotFoundException(ErrorCode.PIPELINE_STAGE_NOT_FOUND, stageId));
+
+        if (pipelineStageRepository.existsByPipelineTemplate_IdAndCodeAndIdNot(templateId, request.getCode(), stageId)) {
+            throw new BusinessConflictException(ErrorCode.PIPELINE_STAGE_CODE_ALREADY_EXISTS, request.getCode());
+        }
+
+        boolean terminal = resolveTerminalFlag(request.isTerminal(), request.getStageType(), request.getSlaHours());
+
+        stage.setName(request.getName());
+        stage.setCode(request.getCode());
+        stage.setStageType(request.getStageType());
+        stage.setTerminal(terminal);
+        stage.setSlaHours(request.getSlaHours());
+        stage.setUpdatedAt(Instant.now(clock));
+        pipelineStageRepository.save(stage);
+
+        log.info("Updated pipeline stage: {} (templateId={}, code={})", stageId, templateId, stage.getCode());
+        return PipelineMapper.toResponseDto(stage, applicationRepository.countByCurrentStage_Id(stageId));
     }
 
     /**
@@ -214,6 +275,7 @@ public class PipelineService {
     public List<PipelineStageResponseDto> reorderStages(
             Long templateId, ReorderPipelineStagesRequestDto request, CurrentUser currentUser) {
         PipelineTemplate template = findTemplateOrThrow(templateId);
+        requireTemplateEditable(template);
         Long departmentId = template.getDepartment() != null ? template.getDepartment().getId() : null;
         accessControlService.checkAccess(currentUser, PermissionCodes.PIPELINE_MANAGE,
                 ResourceContext.department(departmentId));
@@ -259,6 +321,7 @@ public class PipelineService {
         // Same reasoning as createStage/reorderStages: the stage has no department of its
         // own, so the parent template must be loaded first to know the Layer 3 scope.
         PipelineTemplate template = findTemplateOrThrow(templateId);
+        requireTemplateEditable(template);
         Long departmentId = template.getDepartment() != null ? template.getDepartment().getId() : null;
         accessControlService.checkAccess(currentUser, PermissionCodes.PIPELINE_MANAGE,
                 ResourceContext.department(departmentId));
@@ -294,6 +357,56 @@ public class PipelineService {
 
         log.info("Soft-deleted pipeline stage: {} (templateId={}), re-indexed {} remaining stages",
                 stageId, templateId, remaining.size());
+    }
+
+    /**
+     * US-MGR-04 (UC-40, SLA Monitoring): sets or clears the SLA threshold of
+     * one existing Stage - part of HR Admin's normal Pipeline configuration
+     * work, gated by the same {@code PIPELINE_MANAGE} as every other Stage
+     * mutation above (team decision: SLA is configured alongside the rest
+     * of a Stage's structure, not by a separate role/permission).
+     *
+     * @param templateId  id of the pipeline template the stage belongs to
+     * @param stageId     id of the stage whose SLA is being configured
+     * @param request     new SLA threshold in hours, or {@code null} to clear it
+     * @param currentUser HR Admin performing the change
+     * @return the updated stage
+     * @throws ResourceNotFoundException if no template exists with {@code templateId}, or no
+     *                                    active stage with {@code stageId} exists within it
+     * @throws BusinessConflictException if the template is already {@code ACTIVE} (see
+     *                                    {@link #requireTemplateEditable})
+     * @throws BadRequestException       if {@code request.slaHours} is non-null and the Stage
+     *                                    is Terminal (SLA never applies there - see
+     *                                    {@code ErrorCode#SLA_NOT_APPLICABLE_TO_TERMINAL_STAGE})
+     */
+    @Transactional
+    public PipelineStageResponseDto updateStageSla(
+            Long templateId, Long stageId, UpdateStageSlaRequestDto request, CurrentUser currentUser) {
+        PipelineTemplate template = findTemplateOrThrow(templateId);
+        requireTemplateEditable(template);
+        Long departmentId = template.getDepartment() != null ? template.getDepartment().getId() : null;
+        accessControlService.checkAccess(currentUser, PermissionCodes.PIPELINE_MANAGE,
+                ResourceContext.department(departmentId));
+
+        // Same "not found" treatment as deleteStage: a soft-deleted or foreign stage
+        // must never be configurable, silently or otherwise.
+        PipelineStage stage = pipelineStageRepository.findById(stageId)
+                .filter(s -> s.getPipelineTemplate().getId().equals(templateId) && s.isActive())
+                .orElseThrow(() -> new ResourceNotFoundException(ErrorCode.PIPELINE_STAGE_NOT_FOUND, stageId));
+
+        // Same rule as createStage - clearing (null) is always fine, e.g. cleaning up a
+        // Stage that had a value set before this validation existed.
+        if (stage.isTerminal() && request.getSlaHours() != null) {
+            throw new BadRequestException(ErrorCode.SLA_NOT_APPLICABLE_TO_TERMINAL_STAGE);
+        }
+
+        stage.setSlaHours(request.getSlaHours());
+        stage.setUpdatedAt(Instant.now(clock));
+        pipelineStageRepository.save(stage);
+
+        log.info("Configured SLA for pipeline stage: {} (templateId={}, slaHours={})",
+                stageId, templateId, request.getSlaHours());
+        return PipelineMapper.toResponseDto(stage, applicationRepository.countByCurrentStage_Id(stageId));
     }
 
     /**
@@ -372,6 +485,41 @@ public class PipelineService {
 
     private static boolean isTerminalStageType(StageType stageType) {
         return stageType == StageType.TERMINAL_SUCCESS || stageType == StageType.TERMINAL_REJECTED;
+    }
+
+    /**
+     * Shared by {@link #createStage} and {@link #updateStage}: resolves the
+     * effective "Is Terminal" flag - StageType Javadoc: a TERMINAL_SUCCESS/
+     * TERMINAL_REJECTED stage is always terminal regardless of what the
+     * "Is Terminal" checkbox on the request was set to - and enforces
+     * UC-40's SLA/Terminal exclusivity (SLA only makes sense for a Stage an
+     * Application can be "stuck" in; {@code SlaBreachWorker} excludes
+     * terminal Stages outright, so a value set here would silently never
+     * do anything).
+     */
+    private static boolean resolveTerminalFlag(boolean requestedTerminal, StageType stageType, Integer slaHours) {
+        boolean terminal = requestedTerminal || isTerminalStageType(stageType);
+        if (terminal && slaHours != null) {
+            throw new BadRequestException(ErrorCode.SLA_NOT_APPLICABLE_TO_TERMINAL_STAGE);
+        }
+        return terminal;
+    }
+
+    /**
+     * Team decision: once a Pipeline Template is {@code ACTIVE} (Jobs may
+     * already be using it), its Stage structure - and now SLA, configured
+     * alongside it - is frozen. Editing a live pipeline's Stages out from
+     * under the Jobs currently on it (mid-Kanban positions, SLA
+     * expectations already communicated) would be a correctness landmine,
+     * not a convenience. Called at the top of every Stage mutation
+     * (create/reorder/delete/SLA), before any other check, so a locked
+     * template fails fast regardless of which specific field was being
+     * changed.
+     */
+    private void requireTemplateEditable(PipelineTemplate template) {
+        if (template.getStatus() == PipelineTemplateStatus.ACTIVE) {
+            throw new BusinessConflictException(ErrorCode.PIPELINE_TEMPLATE_NOT_EDITABLE);
+        }
     }
 
     private Department resolveDepartmentOrNull(Long departmentId) {

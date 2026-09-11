@@ -43,7 +43,14 @@ public class JobDetailResponseDto {
     /** Tên đầy đủ của Recruiter sở hữu job; {@code null} nếu chưa được gán. */
     private String recruiterName;
 
-    /** Tên đầy đủ của Hiring Manager duyệt job; {@code null} nếu chưa được gán. */
+    /**
+     * Id của Hiring Manager được Recruiter chọn lúc tạo/sửa Job (UC-12) -
+     * {@code null} nếu chưa gán. Dùng để pre-fill lại đúng lựa chọn cũ khi
+     * mở form sửa Job (xem {@code JobPositionRequestDto#hiringManagerId}).
+     */
+    private Long hiringManagerId;
+
+    /** Tên đầy đủ của Hiring Manager đã gán; {@code null} nếu chưa gán. */
     private String hiringManagerName;
 
     private Long pipelineTemplateId;
