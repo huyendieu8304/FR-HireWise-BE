@@ -35,12 +35,17 @@ import com.hirewise.be.exception.ErrorCode;
 import com.hirewise.be.exception.ResourceNotFoundException;
 import com.hirewise.be.repository.ApplicationRepository;
 import com.hirewise.be.repository.ApplicationStageHistoryRepository;
+import com.hirewise.be.repository.DepartmentRepository;
 import com.hirewise.be.repository.InterviewBookingRequestRepository;
 import com.hirewise.be.repository.InterviewBookingSlotRepository;
 import com.hirewise.be.repository.InterviewParticipantRepository;
 import com.hirewise.be.repository.InterviewRepository;
 import com.hirewise.be.repository.PipelineStageRepository;
+import com.hirewise.be.repository.UserAccessScopeRepository;
 import com.hirewise.be.repository.UserRepository;
+import com.hirewise.be.domain.Department;
+import com.hirewise.be.domain.ScopeType;
+import com.hirewise.be.domain.UserAccessScope;
 import com.hirewise.be.security.CurrentUser;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -105,6 +110,12 @@ class InterviewServiceTest {
     @Mock
     InterviewBookingSlotRepository interviewBookingSlotRepository;
 
+    @Mock
+    UserAccessScopeRepository userAccessScopeRepository;
+
+    @Mock
+    DepartmentRepository departmentRepository;
+
     InterviewService interviewService;
 
     Clock fixedClock;
@@ -128,7 +139,9 @@ class InterviewServiceTest {
                 fixedClock,
                 interviewBookingRequestRepository,
                 interviewBookingSlotRepository,
-                "http://localhost:5173/booking"
+                "http://localhost:5173/booking",
+                userAccessScopeRepository,
+                departmentRepository
         );
         recruiterUser = new CurrentUser(100L, "recruiter@hirewise.vn", "Recruiter A", Set.of("RECRUITER"));
     }
@@ -474,6 +487,115 @@ class InterviewServiceTest {
                 interviewService.getScheduleCalendar(start, end, adminUser);
 
         assertThat(result).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("Recruiter only sees interviews belonging to jobs they own")
+    void getScheduleCalendar_recruiterOnlySeesJobsManagedByThem() {
+        // Recruiter userId = 100 (matches recruiterUser fixture)
+        LocalDate start = LocalDate.of(2026, 9, 1);
+        LocalDate end   = LocalDate.of(2026, 9, 30);
+
+        User recruiter100 = User.builder().id(100L).fullName("Recruiter A").build();
+        User recruiter999 = User.builder().id(999L).fullName("Other Recruiter").build();
+        User interviewer  = User.builder().id(50L).fullName("Interviewer X").build();
+        Candidate candidate = Candidate.builder().fullName("Candidate A").primaryEmail("a@gmail.com").build();
+
+        // Job owned by recruiter 100
+        JobPosition myJob = JobPosition.builder().title("My Job").recruiter(recruiter100).build();
+        Application myApp = Application.builder().id(UUID.randomUUID()).candidate(candidate).jobPosition(myJob).build();
+        Interview myInterview = Interview.builder()
+                .id(UUID.randomUUID())
+                .application(myApp)
+                .interviewDate(LocalDate.of(2026, 9, 10))
+                .interviewTime(LocalTime.of(9, 0))
+                .mode(InterviewMode.ONLINE)
+                .status(InterviewStatus.SCHEDULED)
+                .participants(List.of())
+                .build();
+
+        // Job owned by a different recruiter — should NOT appear
+        JobPosition otherJob = JobPosition.builder().title("Other Job").recruiter(recruiter999).build();
+        Application otherApp = Application.builder().id(UUID.randomUUID()).candidate(candidate).jobPosition(otherJob).build();
+        Interview otherInterview = Interview.builder()
+                .id(UUID.randomUUID())
+                .application(otherApp)
+                .interviewDate(LocalDate.of(2026, 9, 11))
+                .interviewTime(LocalTime.of(10, 0))
+                .mode(InterviewMode.ONLINE)
+                .status(InterviewStatus.SCHEDULED)
+                .participants(List.of(InterviewParticipant.builder().interviewer(interviewer).build()))
+                .build();
+
+        when(interviewRepository.findBetweenDates(start, end)).thenReturn(List.of(myInterview, otherInterview));
+
+        List<com.hirewise.be.dto.response.InterviewCalendarDto> result =
+                interviewService.getScheduleCalendar(start, end, recruiterUser);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getInterviewId()).isEqualTo(myInterview.getId());
+    }
+
+    @Test
+    @DisplayName("Hiring Manager sees interviews whose job belongs to their department scope")
+    void getScheduleCalendar_hiringManagerSeesDepartmentInterviews() {
+        CurrentUser hmUser = new CurrentUser(200L, "hm@hirewise.vn", "HM User", Set.of("HIRING_MANAGER"));
+        LocalDate start = LocalDate.of(2026, 9, 1);
+        LocalDate end   = LocalDate.of(2026, 9, 30);
+
+        // HM has DEPARTMENT scope for department id=10 (including sub-departments)
+        Department dept10 = Department.builder().id(10L).name("Engineering").build();
+        UserAccessScope deptScope = UserAccessScope.builder()
+                .scopeType(ScopeType.DEPARTMENT)
+                .department(dept10)
+                .includeSubDepartments(true)
+                .canWrite(false)
+                .validFrom(fixedInstant.minusSeconds(3600))
+                .build();
+
+        when(userAccessScopeRepository.findActiveScopes(eq(200L), any(Instant.class)))
+                .thenReturn(List.of(deptScope));
+        // dept10 has sub-department id=11 as well
+        when(departmentRepository.findSelfAndDescendantIds(10L)).thenReturn(List.of(10L, 11L));
+
+        Candidate candidate = Candidate.builder().fullName("Candidate B").primaryEmail("b@gmail.com").build();
+
+        // Interview in dept 10 — should appear
+        Department dept10ref = Department.builder().id(10L).name("Engineering").build();
+        JobPosition jobInScope = JobPosition.builder().title("Backend").department(dept10ref).build();
+        Application appInScope = Application.builder().id(UUID.randomUUID()).candidate(candidate).jobPosition(jobInScope).build();
+        Interview inScopeInterview = Interview.builder()
+                .id(UUID.randomUUID())
+                .application(appInScope)
+                .interviewDate(LocalDate.of(2026, 9, 10))
+                .interviewTime(LocalTime.of(9, 0))
+                .mode(InterviewMode.ONLINE)
+                .status(InterviewStatus.SCHEDULED)
+                .participants(List.of())
+                .build();
+
+        // Interview in dept 99 (outside scope) — should NOT appear
+        Department dept99 = Department.builder().id(99L).name("Marketing").build();
+        JobPosition jobOutOfScope = JobPosition.builder().title("Marketing Role").department(dept99).build();
+        Application appOutOfScope = Application.builder().id(UUID.randomUUID()).candidate(candidate).jobPosition(jobOutOfScope).build();
+        Interview outOfScopeInterview = Interview.builder()
+                .id(UUID.randomUUID())
+                .application(appOutOfScope)
+                .interviewDate(LocalDate.of(2026, 9, 11))
+                .interviewTime(LocalTime.of(10, 0))
+                .mode(InterviewMode.ONLINE)
+                .status(InterviewStatus.SCHEDULED)
+                .participants(List.of())
+                .build();
+
+        when(interviewRepository.findBetweenDates(start, end))
+                .thenReturn(List.of(inScopeInterview, outOfScopeInterview));
+
+        List<com.hirewise.be.dto.response.InterviewCalendarDto> result =
+                interviewService.getScheduleCalendar(start, end, hmUser);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getInterviewId()).isEqualTo(inScopeInterview.getId());
     }
 
     // =========================================================================

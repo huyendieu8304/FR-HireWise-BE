@@ -28,11 +28,15 @@ import com.hirewise.be.exception.ResourceNotFoundException;
 import com.hirewise.be.mapper.InterviewMapper;
 import com.hirewise.be.repository.ApplicationRepository;
 import com.hirewise.be.repository.ApplicationStageHistoryRepository;
+import com.hirewise.be.repository.DepartmentRepository;
 import com.hirewise.be.repository.InterviewParticipantRepository;
 import com.hirewise.be.repository.InterviewRepository;
 import com.hirewise.be.repository.PipelineStageRepository;
+import com.hirewise.be.repository.UserAccessScopeRepository;
 import com.hirewise.be.repository.UserRepository;
 import com.hirewise.be.security.CurrentUser;
+import com.hirewise.be.domain.ScopeType;
+import com.hirewise.be.domain.UserAccessScope;
 import com.hirewise.be.domain.InterviewBookingRequest;
 import com.hirewise.be.domain.InterviewBookingRequestStatus;
 import com.hirewise.be.domain.InterviewBookingSlot;
@@ -55,7 +59,9 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -82,6 +88,9 @@ public class InterviewService {
     private final InterviewBookingRequestRepository interviewBookingRequestRepository;
     private final InterviewBookingSlotRepository interviewBookingSlotRepository;
     private final String bookingLinkBaseUrl;
+    /** RBAC layer 3 — used by getScheduleCalendar to resolve Hiring Manager department scopes. */
+    private final UserAccessScopeRepository userAccessScopeRepository;
+    private final DepartmentRepository departmentRepository;
 
     public InterviewService(
             InterviewRepository interviewRepository,
@@ -96,7 +105,9 @@ public class InterviewService {
             Clock clock,
             InterviewBookingRequestRepository interviewBookingRequestRepository,
             InterviewBookingSlotRepository interviewBookingSlotRepository,
-            @Value("${app.booking.link-base-url:http://localhost:5173/booking}") String bookingLinkBaseUrl) {
+            @Value("${app.booking.link-base-url:http://localhost:5173/booking}") String bookingLinkBaseUrl,
+            UserAccessScopeRepository userAccessScopeRepository,
+            DepartmentRepository departmentRepository) {
         this.interviewRepository = interviewRepository;
         this.interviewParticipantRepository = interviewParticipantRepository;
         this.applicationRepository = applicationRepository;
@@ -110,6 +121,8 @@ public class InterviewService {
         this.interviewBookingRequestRepository = interviewBookingRequestRepository;
         this.interviewBookingSlotRepository = interviewBookingSlotRepository;
         this.bookingLinkBaseUrl = bookingLinkBaseUrl;
+        this.userAccessScopeRepository = userAccessScopeRepository;
+        this.departmentRepository = departmentRepository;
     }
 
     /**
@@ -337,33 +350,62 @@ public class InterviewService {
 
     /**
      * Retrieves scheduled interviews within a date range for the calendar visual grid (UC-24).
+     *
+     * <p>Visibility rules (RBAC):
+     * <ul>
+     *   <li><b>HR_ADMIN</b> — sees every interview company-wide.</li>
+     *   <li><b>HIRING_MANAGER</b> — sees interviews belonging to any job whose department
+     *       falls within the HM's active Access Scopes (DEPARTMENT or SYSTEM).</li>
+     *   <li><b>RECRUITER</b> — sees interviews belonging to jobs they own
+     *       ({@code recruiter_id} or {@code created_by_user_id}).</li>
+     *   <li><b>INTERVIEWER</b> (default) — sees only interviews they are assigned to
+     *       as a participant.</li>
+     * </ul>
      */
     public List<com.hirewise.be.dto.response.InterviewCalendarDto> getScheduleCalendar(
             LocalDate startDate, LocalDate endDate, CurrentUser currentUser) {
         accessControlService.checkAccess(currentUser, PermissionCodes.APPLICATION_VIEW, ResourceContext.none());
         List<Interview> interviews = interviewRepository.findBetweenDates(startDate, endDate);
 
-        // Filter: only related recruiters, interviewers, and hiring managers can see the interview (HR_ADMIN sees all)
         if (!currentUser.hasRole("HR_ADMIN")) {
             Long currentUserId = currentUser.userId();
-            interviews = interviews.stream().filter(i -> {
-                boolean isParticipant = i.getParticipants() != null && i.getParticipants().stream()
-                        .anyMatch(p -> p.getInterviewer() != null && currentUserId.equals(p.getInterviewer().getId()));
-                boolean isScheduledBy = i.getScheduledBy() != null && currentUserId.equals(i.getScheduledBy().getId());
-                boolean isJobRecruiter = i.getApplication() != null
-                        && i.getApplication().getJobPosition() != null
-                        && i.getApplication().getJobPosition().getRecruiter() != null
-                        && currentUserId.equals(i.getApplication().getJobPosition().getRecruiter().getId());
-                boolean isJobCreator = i.getApplication() != null
-                        && i.getApplication().getJobPosition() != null
-                        && currentUserId.equals(i.getApplication().getJobPosition().getCreatedByUserId());
-                boolean isHiringManager = i.getApplication() != null
-                        && i.getApplication().getJobPosition() != null
-                        && i.getApplication().getJobPosition().getHiringManager() != null
-                        && currentUserId.equals(i.getApplication().getJobPosition().getHiringManager().getId());
 
-                return isParticipant || isScheduledBy || isJobRecruiter || isJobCreator || isHiringManager;
-            }).toList();
+            if (currentUser.hasRole("HIRING_MANAGER")) {
+                // ── Hiring Manager: filter by RBAC-layer-3 department scopes ──────────────
+                // Resolve all department IDs the HM is allowed to see (including sub-departments).
+                Set<Long> allowedDeptIds = resolveHiringManagerDepartmentIds(currentUserId);
+                if (allowedDeptIds == null) {
+                    // SYSTEM scope → HM can see everything (equivalent to HR_ADMIN for calendar)
+                    // no-op: do not filter
+                } else {
+                    interviews = interviews.stream().filter(i -> {
+                        if (i.getApplication() == null || i.getApplication().getJobPosition() == null) return false;
+                        var dept = i.getApplication().getJobPosition().getDepartment();
+                        return dept != null && allowedDeptIds.contains(dept.getId());
+                    }).toList();
+                }
+
+            } else if (currentUser.hasRole("RECRUITER")) {
+                // ── Recruiter: filter by job ownership ────────────────────────────────────
+                interviews = interviews.stream().filter(i -> {
+                    if (i.getApplication() == null || i.getApplication().getJobPosition() == null) return false;
+                    var job = i.getApplication().getJobPosition();
+                    boolean isJobRecruiter = job.getRecruiter() != null
+                            && currentUserId.equals(job.getRecruiter().getId());
+                    boolean isJobCreator = currentUserId.equals(job.getCreatedByUserId());
+                    boolean isScheduledBy = i.getScheduledBy() != null
+                            && currentUserId.equals(i.getScheduledBy().getId());
+                    return isJobRecruiter || isJobCreator || isScheduledBy;
+                }).toList();
+
+            } else {
+                // ── Interviewer (and any other role): only assigned interviews ─────────────
+                interviews = interviews.stream().filter(i ->
+                    i.getParticipants() != null && i.getParticipants().stream()
+                            .anyMatch(p -> p.getInterviewer() != null
+                                    && currentUserId.equals(p.getInterviewer().getId()))
+                ).toList();
+            }
         }
 
         return interviews.stream().map(i -> {
@@ -387,6 +429,33 @@ public class InterviewService {
                     .notes(i.getNotes())
                     .build();
         }).toList();
+    }
+
+    /**
+     * Resolves the set of department IDs visible to a Hiring Manager based on their
+     * active Access Scopes (RBAC layer 3).
+     *
+     * @param userId the Hiring Manager's user ID
+     * @return set of allowed department IDs (including sub-departments),
+     *         or {@code null} if the HM has a SYSTEM-level scope (sees everything)
+     */
+    private Set<Long> resolveHiringManagerDepartmentIds(Long userId) {
+        List<UserAccessScope> scopes = userAccessScopeRepository.findActiveScopes(userId, Instant.now(clock));
+        Set<Long> allowedDeptIds = new HashSet<>();
+        for (UserAccessScope scope : scopes) {
+            if (scope.getScopeType() == ScopeType.SYSTEM) {
+                return null; // SYSTEM scope → no restriction needed
+            }
+            if (scope.getScopeType() == ScopeType.DEPARTMENT && scope.getDepartment() != null) {
+                Long rootId = scope.getDepartment().getId();
+                if (scope.isIncludeSubDepartments()) {
+                    allowedDeptIds.addAll(departmentRepository.findSelfAndDescendantIds(rootId));
+                } else {
+                    allowedDeptIds.add(rootId);
+                }
+            }
+        }
+        return allowedDeptIds;
     }
 
     /**
