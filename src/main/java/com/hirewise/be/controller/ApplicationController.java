@@ -42,7 +42,7 @@ import java.util.UUID;
  *       (RBAC.md section 4: {@code application.job.recruiter_id}), both enforced by {@link RequiresOwnership}/{@code OwnershipAspect}</li>
  *   <li>{@code POST /api/applications/{applicationId}/reject}  - {@code APPLICATION_REJECT}, same ownership rule as above</li>
  *   <li>{@code GET  /api/applications/{applicationId}/ai-screening}     - {@code AI_VIEW}, scoped to the job's department (UC-21)</li>
- *   <li>{@code POST /api/applications/{applicationId}/ai-screening/run} - {@code AI_VIEW}, scoped to the job's department (UC-21 AF-01)</li>
+ *   <li>{@code POST /api/applications/{applicationId}/ai-screening/run} - {@code AI_RUN}, scoped to the job's department (UC-21 AF-01)</li>
  * </ul>
  */
 @RestController

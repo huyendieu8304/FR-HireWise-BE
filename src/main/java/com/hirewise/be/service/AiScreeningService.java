@@ -124,12 +124,12 @@ public class AiScreeningService {
      * keeping every previous run's history intact (BR-AI-02).
      *
      * @param applicationId id of the application to re-analyze
-     * @param currentUser   authenticated caller, must have {@code AI_VIEW} scoped to the job's department
+     * @param currentUser   authenticated caller, must have {@code AI_RUN} scoped to the job's department
      * @throws ResourceNotFoundException if no application exists with this id
      */
     @Transactional
     public void runManual(UUID applicationId, CurrentUser currentUser) {
-        Application application = loadWithAccessCheck(applicationId, currentUser);
+        Application application = loadWithAccessCheck(applicationId, currentUser, PermissionCodes.AI_RUN);
         enqueueRun(application);
     }
 
@@ -150,7 +150,7 @@ public class AiScreeningService {
      *
      * @param jobId       id của Job đang xem Kanban board (đường dẫn chứa `stageId`)
      * @param stageId     id của Stage (cột) muốn quét
-     * @param currentUser caller, phải có {@code AI_VIEW} scoped theo department của Job
+     * @param currentUser caller, phải có {@code AI_RUN} scoped theo department của Job
      * @return tổng số Application ở Stage này, cùng số queued (PENDING) / skipped (FAILED
      *         ngay do thiếu/sai CV) / alreadyAnalyzed (có điểm AI từ trước, không đụng tới)
      * @throws ResourceNotFoundException nếu Job hoặc Stage không tồn tại
@@ -164,7 +164,7 @@ public class AiScreeningService {
                 .orElseThrow(() -> new ResourceNotFoundException(ErrorCode.JOB_POSITION_NOT_FOUND, jobId));
 
         Long departmentId = job.getDepartment() != null ? job.getDepartment().getId() : null;
-        accessControlService.checkAccess(currentUser, PermissionCodes.AI_VIEW,
+        accessControlService.checkAccess(currentUser, PermissionCodes.AI_RUN,
                 ResourceContext.job(jobId, departmentId));
 
         PipelineStage stage = pipelineStageRepository.findById(stageId)
@@ -219,7 +219,7 @@ public class AiScreeningService {
      */
     @Transactional(readOnly = true)
     public AiScreeningResultResponseDto getLatestResult(UUID applicationId, CurrentUser currentUser) {
-        loadWithAccessCheck(applicationId, currentUser);
+        loadWithAccessCheck(applicationId, currentUser, PermissionCodes.AI_VIEW);
 
         AiScreeningRun run = aiScreeningRunRepository
                 .findFirstByApplication_IdOrderByCreatedAtDesc(applicationId)
@@ -232,13 +232,13 @@ public class AiScreeningService {
         return AiScreeningMapper.toDto(run, skillMatches);
     }
 
-    private Application loadWithAccessCheck(UUID applicationId, CurrentUser currentUser) {
+    private Application loadWithAccessCheck(UUID applicationId, CurrentUser currentUser, String permissionCode) {
         Application application = applicationRepository.findById(applicationId)
                 .orElseThrow(() -> new ResourceNotFoundException(ErrorCode.APPLICATION_NOT_FOUND, applicationId));
 
         JobPosition job = application.getJobPosition();
         Long departmentId = job.getDepartment() != null ? job.getDepartment().getId() : null;
-        accessControlService.checkAccess(currentUser, PermissionCodes.AI_VIEW,
+        accessControlService.checkAccess(currentUser, permissionCode,
                 ResourceContext.job(job.getId(), departmentId));
 
         return application;

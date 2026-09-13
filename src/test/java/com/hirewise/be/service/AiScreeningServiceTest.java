@@ -169,7 +169,7 @@ class AiScreeningServiceTest {
 
         aiScreeningService.runManual(APPLICATION_ID, currentUser);
 
-        verify(accessControlService).checkAccess(eq(currentUser), eq(PermissionCodes.AI_VIEW), any(ResourceContext.class));
+        verify(accessControlService).checkAccess(eq(currentUser), eq(PermissionCodes.AI_RUN), any(ResourceContext.class));
         verify(aiScreeningRunRepository).save(any(AiScreeningRun.class));
     }
 
@@ -228,7 +228,7 @@ class AiScreeningServiceTest {
 
         AiScreeningBatchResponseDto result = aiScreeningService.runBatchForStage(jobId, 10L, currentUser);
 
-        verify(accessControlService).checkAccess(eq(currentUser), eq(PermissionCodes.AI_VIEW), any(ResourceContext.class));
+        verify(accessControlService).checkAccess(eq(currentUser), eq(PermissionCodes.AI_RUN), any(ResourceContext.class));
         assertThat(result.getTotalApplications()).isEqualTo(2);
         assertThat(result.getQueuedCount()).isEqualTo(1);
         assertThat(result.getSkippedCount()).isEqualTo(1);
