@@ -34,7 +34,7 @@ public class TemplateVariableValidator implements ConstraintValidator<ValidTempl
             "Meeting_Location_Or_Link", "Confirm_Link", "Booking_Link",
             "Expiry_Hours", "Scorecard_Link", "Candidate_Profile_Link",
             // Offer / Onboarding
-            "Offer_Link", "Expiry_Date", "Signed_At", "Signed_File_Link", "Start_Date",
+            "Offer_Link", "Expiry_Date", "Signed_At", "Signed_File_Link", "Signed_File_Note", "Start_Date",
             // Link / Phe duyet
             "Activation_Link", "Job_Approval_Link", "Job_Link", "Dashboard_Link",
             // Noi dung dong

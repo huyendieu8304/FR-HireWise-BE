@@ -193,18 +193,18 @@ public final class OutboxPayloads {
      * @param jobTitle       title of the job just accepted
      * @param signedAt       signing timestamp, already formatted for display
      * @param startDate      agreed start date, already formatted for display
-     * @param signedFileLink where the signed PDF can be retrieved; may be blank
-     *                       when the file is still queued locally (BR-STORAGE-02)
+     * @param signedFileId   {@code files.file_id} of the signed PDF, attached to
+     *                       the email at send time rather than stored in the payload
      */
     public static Map<String, Object> offerSignedEmail(String email, String candidateName, String jobTitle,
-                                                        String signedAt, String startDate, String signedFileLink) {
+                                                        String signedAt, String startDate, Long signedFileId) {
         return Map.of(
                 "email", email == null ? "" : email,
                 "candidateName", candidateName == null ? "" : candidateName,
                 "jobTitle", jobTitle == null ? "" : jobTitle,
                 "signedAt", signedAt == null ? "" : signedAt,
                 "startDate", startDate == null ? "" : startDate,
-                "signedFileLink", signedFileLink == null ? "" : signedFileLink);
+                "signedFileId", signedFileId == null ? "" : signedFileId);
     }
 
     /**

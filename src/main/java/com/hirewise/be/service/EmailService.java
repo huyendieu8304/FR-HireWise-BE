@@ -92,17 +92,18 @@ public interface EmailService {
                            String otpCode, long ttlMinutes);
 
     /**
-     * EM-12 (UC-39 step 7): confirms the offer was signed and points at the
-     * stored signed PDF.
+     * EM-12 (UC-39 step 7): confirms the offer was signed, with the signed PDF
+     * attached directly - the candidate never sees a Cloud Storage link.
      *
      * @param toEmail        candidate's email address
      * @param candidateName  candidate's full name
      * @param jobTitle       title of the job just accepted
      * @param signedAt       signing timestamp, already formatted for display
      * @param startDate      agreed start date, already formatted for display
-     * @param signedFileLink where the signed PDF can be retrieved; may be blank
-     *                        while the file is still queued locally (BR-STORAGE-02)
+     * @param signedContract the signed PDF to attach; may be {@code null} when
+     *                       its bytes could not be read, in which case the email
+     *                       says the contract will follow
      */
     void sendOfferSignedEmail(String toEmail, String candidateName, String jobTitle,
-                              String signedAt, String startDate, String signedFileLink);
+                              String signedAt, String startDate, EmailAttachment signedContract);
 }

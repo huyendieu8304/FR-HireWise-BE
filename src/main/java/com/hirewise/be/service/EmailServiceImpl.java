@@ -9,6 +9,7 @@ import com.hirewise.be.repository.EmailTemplateRepository;
 import jakarta.mail.internet.MimeMessage;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.ByteArrayResource;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
@@ -115,6 +116,11 @@ public class EmailServiceImpl implements EmailService {
 
     @Override
     public void sendTemplateEmail(String toEmail, String templateCode, Map<String, String> variables) {
+        sendTemplateEmail(toEmail, templateCode, variables, null);
+    }
+
+    private void sendTemplateEmail(String toEmail, String templateCode, Map<String, String> variables,
+                                   EmailAttachment attachment) {
         EmailTemplate template = emailTemplateRepository
                 .findByCodeAndStatus(templateCode, EmailTemplateStatus.ACTIVE)
                 .or(() -> emailTemplateRepository.findByCode(templateCode))
@@ -124,7 +130,7 @@ public class EmailServiceImpl implements EmailService {
         String html = renderTemplate(template.getBodyTemplate(), variables);
         String plainText = htmlToPlainText(html);
 
-        send(toEmail, subject, plainText, html);
+        send(toEmail, subject, plainText, html, attachment);
     }
 
     private String renderTemplate(String template, Map<String, String> variables) {
@@ -166,7 +172,8 @@ public class EmailServiceImpl implements EmailService {
                 .trim();
     }
 
-    private void send(String toEmail, String subject, String plainText, String html) {
+    private void send(String toEmail, String subject, String plainText, String html,
+                      EmailAttachment attachment) {
         try {
             MimeMessage message = mailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
@@ -174,6 +181,10 @@ public class EmailServiceImpl implements EmailService {
             helper.setTo(toEmail);
             helper.setSubject(subject);
             helper.setText(plainText, html);
+            if (attachment != null) {
+                helper.addAttachment(attachment.fileName(),
+                        new ByteArrayResource(attachment.content()), attachment.mimeType());
+            }
             mailSender.send(message);
             log.info("Sent email to {}: {}", LogMaskUtils.maskEmail(toEmail), subject);
         } catch (Exception e) {
@@ -254,13 +265,13 @@ public class EmailServiceImpl implements EmailService {
 
     @Override
     public void sendOfferSignedEmail(String toEmail, String candidateName, String jobTitle,
-                                      String signedAt, String startDate, String signedFileLink) {
+                                      String signedAt, String startDate, EmailAttachment signedContract) {
         String candName = (candidateName == null || candidateName.isBlank()) ? "Ung vien" : candidateName;
-        // BR-STORAGE-02: the signed PDF may still be queued locally, in which
-        // case there is no link yet - say so rather than emailing a dead URL.
-        String fileLink = (signedFileLink == null || signedFileLink.isBlank())
+        // The PDF's bytes may be unreadable at send time (e.g. a Cloud Storage
+        // outage) - say the contract will follow rather than hold the email back.
+        String fileNote = signedContract == null
                 ? "Ban hop dong da ky se duoc gui bo sung trong thoi gian som nhat."
-                : signedFileLink;
+                : "Ban hop dong da ky duoc dinh kem trong email nay.";
 
         Map<String, String> variables = new HashMap<>();
         variables.put("Candidate_Name", candName);
@@ -269,9 +280,9 @@ public class EmailServiceImpl implements EmailService {
         variables.put("Company", productName);
         variables.put("Signed_At", signedAt != null ? signedAt : "");
         variables.put("Start_Date", startDate != null ? startDate : "");
-        variables.put("Signed_File_Link", fileLink);
+        variables.put("Signed_File_Note", fileNote);
 
-        sendTemplateEmail(toEmail, "EM-12", variables);
+        sendTemplateEmail(toEmail, "EM-12", variables, signedContract);
     }
 
     /** Wraps any checked/unchecked failure from the underlying mail transport. */
