@@ -26,7 +26,7 @@ import java.util.UUID;
  *   <li>{@code GET /api/jobs/{jobId}/kanban-board} - {@code APPLICATION_VIEW}, scoped
  *   to the job's department (Recruiter/Hiring Manager/Interviewer, see RBAC.md).</li>
  *   <li>{@code POST /api/jobs/{jobId}/kanban-board/stages/{stageId}/ai-screening/run-batch}
- *   - {@code AI_VIEW}, scoped to the job's department (UC-21 "Quét cả cột").</li>
+ *   - {@code AI_RUN}, scoped to the job's department (UC-21 "Quét cả cột").</li>
  * </ul>
  */
 @RestController
