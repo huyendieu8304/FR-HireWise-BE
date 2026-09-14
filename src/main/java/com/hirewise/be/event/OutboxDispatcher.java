@@ -2,7 +2,11 @@ package com.hirewise.be.event;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.hirewise.be.domain.StoredFile;
+import com.hirewise.be.repository.StoredFileRepository;
+import com.hirewise.be.service.EmailAttachment;
 import com.hirewise.be.service.EmailService;
+import com.hirewise.be.service.FileStorageService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
@@ -30,8 +34,13 @@ import java.util.List;
 @Component
 public class OutboxDispatcher {
 
+    /** Name the candidate sees on the EM-12 attachment, instead of the internal storage name. */
+    private static final String SIGNED_CONTRACT_FILE_NAME = "Hop-dong-da-ky.pdf";
+
     private final OutboxEventRepository outboxEventRepository;
     private final EmailService emailService;
+    private final StoredFileRepository storedFileRepository;
+    private final FileStorageService fileStorageService;
     private final ObjectMapper objectMapper;
     private final Clock clock;
     private final int batchSize;
@@ -39,12 +48,16 @@ public class OutboxDispatcher {
 
     public OutboxDispatcher(OutboxEventRepository outboxEventRepository,
                              EmailService emailService,
+                             StoredFileRepository storedFileRepository,
+                             FileStorageService fileStorageService,
                              ObjectMapper objectMapper,
                              Clock clock,
                              @Value("${app.outbox.batch-size:20}") int batchSize,
                              @Value("${app.outbox.max-attempts:5}") int maxAttempts) {
         this.outboxEventRepository = outboxEventRepository;
         this.emailService = emailService;
+        this.storedFileRepository = storedFileRepository;
+        this.fileStorageService = fileStorageService;
         this.objectMapper = objectMapper;
         this.clock = clock;
         this.batchSize = batchSize;
@@ -163,7 +176,7 @@ public class OutboxDispatcher {
                         requireField(payload, "jobTitle", event.getEventType()),
                         requireField(payload, "signedAt", event.getEventType()),
                         payload.path("startDate").asText(null),
-                        payload.path("signedFileLink").asText(null));
+                        signedContractOrNull(payload, event));
                 case BOOKING_LINK_EMAIL -> {
                     String toEmail = requireField(payload, "email", event.getEventType());
                     java.util.Map<String, String> vars = new java.util.HashMap<>();
@@ -244,6 +257,32 @@ public class OutboxDispatcher {
             }
         }
         outboxEventRepository.save(event);
+    }
+
+    /**
+     * EM-12: loads the signed Offer PDF to attach. Never throws - an unreadable
+     * file (Cloud Storage outage, missing local copy, or an old payload that
+     * still carries {@code signedFileLink}) sends the email without the
+     * attachment instead. The retry budget is only a few polls long, and a
+     * row that ends up FAILED would leave the new hire with no email at all.
+     */
+    private EmailAttachment signedContractOrNull(JsonNode payload, OutboxEvent event) {
+        long fileId = payload.path("signedFileId").asLong(0);
+        if (fileId <= 0) {
+            log.warn("Outbox event {} ({}) has no signedFileId - sending EM-12 without attachment",
+                    event.getId(), event.getEventType());
+            return null;
+        }
+        try {
+            StoredFile file = storedFileRepository.findWithStorageConnectionById(fileId)
+                    .orElseThrow(() -> new IllegalStateException("files row " + fileId + " not found"));
+            return new EmailAttachment(SIGNED_CONTRACT_FILE_NAME, file.getMimeType(),
+                    fileStorageService.readBytes(file));
+        } catch (RuntimeException e) {
+            log.warn("Could not read signed offer PDF {} for outbox event {} - sending EM-12 without attachment: {}",
+                    fileId, event.getId(), e.toString());
+            return null;
+        }
     }
 
     /**

@@ -129,7 +129,6 @@ class OfferSigningServiceTest {
                 .thenReturn("pdf".getBytes());
         when(fileStorageService.store(any(), anyString(), eq("application/pdf"), anyString(), anyString()))
                 .thenReturn(signedFile);
-        when(fileStorageService.getViewUrl(signedFile)).thenReturn("https://drive.example/signed.pdf");
 
         PublicOfferContentDto result =
                 offerSigningService.sign(RAW_TOKEN, drawRequest(), CLIENT_IP);
@@ -202,7 +201,9 @@ class OfferSigningServiceTest {
         ArgumentCaptor<Map<String, Object>> payload = ArgumentCaptor.forClass(Map.class);
         verify(outboxEventPublisher).publish(eq(OutboxEventType.OFFER_SIGNED_EMAIL), payload.capture());
         assertThat(payload.getValue().get("email")).isEqualTo("nguyenvana@example.com");
-        assertThat(payload.getValue().get("signedFileLink")).isEqualTo("https://drive.example/signed.pdf");
+        // The PDF is attached at send time by id - no Cloud Storage link reaches the candidate.
+        assertThat(payload.getValue().get("signedFileId")).isEqualTo(99L);
+        assertThat(payload.getValue()).doesNotContainKey("signedFileLink");
     }
 
     @Test
@@ -219,7 +220,6 @@ class OfferSigningServiceTest {
                 .thenReturn("pdf".getBytes());
         when(fileStorageService.store(any(), anyString(), anyString(), anyString(), anyString()))
                 .thenReturn(signedFile);
-        when(fileStorageService.getViewUrl(signedFile)).thenReturn("https://drive.example/signed.pdf");
 
         SignOfferRequestDto request = new SignOfferRequestDto(SignatureMethod.TYPE, null, "  Nguyen Van A Ky  ");
         offerSigningService.sign(RAW_TOKEN, request, CLIENT_IP);
@@ -306,28 +306,14 @@ class OfferSigningServiceTest {
     }
 
     @Test
-    void queuedLocalFileWithNoUrl_stillSignsAndSendsEmailWithoutLink() {
+    void signingNeverCallsCloudStorageForAViewUrl() {
         Offer offer = offer(OfferStatus.SENT);
-        StoredFile signedFile = storedFile();
-        when(offerAccessService.resolveToken(RAW_TOKEN)).thenReturn(verifiedToken(offer));
-        when(pipelineStageRepository.findFirstByPipelineTemplate_IdAndStageTypeAndActiveTrue(
-                PIPELINE_TEMPLATE_ID, StageType.TERMINAL_SUCCESS))
-                .thenReturn(Optional.of(stage(20L, "Da tuyen", StageType.TERMINAL_SUCCESS)));
-        when(offerPdfRenderer.render(any(), any(), anyString(), any(), any())).thenReturn("pdf".getBytes());
-        when(fileStorageService.store(any(), anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(signedFile);
-        // BR-STORAGE-02: still in the local queue, so no provider URL exists yet.
-        when(fileStorageService.getViewUrl(signedFile))
-                .thenThrow(new BadRequestException(ErrorCode.FILE_NOT_YET_AVAILABLE));
+        stubHappyPath(offer, verifiedToken(offer));
 
         offerSigningService.sign(RAW_TOKEN, drawRequest(), CLIENT_IP);
 
         assertThat(offer.getStatus()).isEqualTo(OfferStatus.SIGNED);
-
-        @SuppressWarnings("unchecked")
-        ArgumentCaptor<Map<String, Object>> payload = ArgumentCaptor.forClass(Map.class);
-        verify(outboxEventPublisher).publish(eq(OutboxEventType.OFFER_SIGNED_EMAIL), payload.capture());
-        assertThat(payload.getValue().get("signedFileLink")).isEqualTo("");
+        verify(fileStorageService, never()).getViewUrl(any());
     }
 
     private void stubHappyPath(Offer offer, OfferAccessToken token) {
@@ -339,7 +325,6 @@ class OfferSigningServiceTest {
         when(offerPdfRenderer.render(any(), any(), anyString(), any(), any())).thenReturn("pdf".getBytes());
         when(fileStorageService.store(any(), anyString(), anyString(), anyString(), anyString()))
                 .thenReturn(signedFile);
-        when(fileStorageService.getViewUrl(signedFile)).thenReturn("https://drive.example/signed.pdf");
     }
 
     private static SignOfferRequestDto drawRequest() {

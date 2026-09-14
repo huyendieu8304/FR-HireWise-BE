@@ -292,4 +292,31 @@ public class FileStorageService {
         }
         return client.downloadFile(accessToken, externalFileId);
     }
+
+    /**
+     * Reads the raw file bytes wherever they currently live: the local
+     * pending-upload queue (BR-STORAGE-02) or the Cloud Storage provider.
+     * <p>
+     * Unlike {@link #downloadFile}, a locally queued file is not an error here -
+     * used by EM-12 so the signed Offer PDF can still be attached to the email
+     * during a Cloud Storage outage.
+     *
+     * @param storedFile the file to read
+     * @return the raw bytes
+     * @throws UncheckedIOException if the locally queued file cannot be read
+     * @throws IntegrationConnectException if the provider call fails
+     */
+    public byte[] readBytes(StoredFile storedFile) {
+        String externalFileId = storedFile.getExternalFileId();
+        if (externalFileId != null && externalFileId.startsWith(PENDING_LOCAL_PREFIX)) {
+            String localFileName = externalFileId.substring(PENDING_LOCAL_PREFIX.length());
+            try {
+                return Files.readAllBytes(pendingUploadDir.resolve(localFileName));
+            } catch (IOException e) {
+                throw new UncheckedIOException("Failed to read queued file " + localFileName
+                        + " from the local pending-upload directory", e);
+            }
+        }
+        return downloadFile(storedFile);
+    }
 }

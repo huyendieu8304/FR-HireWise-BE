@@ -197,7 +197,7 @@ public class OfferSigningService {
                         application.getJobPosition().getTitle(),
                         VI_DATE_TIME_FORMATTER.format(now),
                         offer.getStartDate().format(VI_DATE_FORMATTER),
-                        signedFileLinkOrBlank(signedFile)));
+                        signedFile.getId()));
 
         log.info("Offer {} signed (method={}); application {} moved to Hired",
                 offer.getId(), request.getMethod(), application.getId());
@@ -297,19 +297,5 @@ public class OfferSigningService {
                 .transitionType(StageTransitionType.SYSTEM)
                 .changedAt(now)
                 .build());
-    }
-
-    /**
-     * BR-STORAGE-02: a file still sitting in the local pending-upload queue
-     * has no provider URL yet, so EM-12 says the contract will follow instead
-     * of carrying a dead link.
-     */
-    private String signedFileLinkOrBlank(StoredFile signedFile) {
-        try {
-            return fileStorageService.getViewUrl(signedFile);
-        } catch (RuntimeException e) {
-            log.warn("Signed offer PDF {} has no view URL yet: {}", signedFile.getId(), e.getMessage());
-            return "";
-        }
     }
 }
