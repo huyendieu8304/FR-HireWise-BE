@@ -7,8 +7,10 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.UUID;
 
 /**
@@ -24,6 +26,20 @@ import java.util.UUID;
 @AllArgsConstructor
 @Builder
 public class JobPosition {
+
+    /** Business time zone {@link #applicationDeadline} is evaluated in - the app {@code Clock} bean is UTC. */
+    public static final ZoneId DEADLINE_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
+
+    /**
+     * Today's date for comparing against {@link #applicationDeadline}. Using the
+     * UTC date directly would keep a job open until 07:00 (VN) the day after its deadline.
+     *
+     * @param clock the application clock
+     * @return the current date in {@link #DEADLINE_ZONE}
+     */
+    public static LocalDate deadlineToday(Clock clock) {
+        return LocalDate.now(clock.withZone(DEADLINE_ZONE));
+    }
 
     @Id
     private UUID id;
@@ -65,7 +81,11 @@ public class JobPosition {
     @Column(nullable = false)
     private int openings;
 
-    /** Optional; BR-JOB-03: must be a future date when set. */
+    /**
+     * Optional; BR-JOB-03: must be a future date when set. Inclusive - the job
+     * still accepts applications for the whole deadline day, evaluated in
+     * {@link #DEADLINE_ZONE} (see {@link #deadlineToday}).
+     */
     @Column(name = "application_deadline")
     private LocalDate applicationDeadline;
 

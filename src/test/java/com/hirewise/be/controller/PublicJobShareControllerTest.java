@@ -16,7 +16,10 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
+import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -43,6 +46,9 @@ class PublicJobShareControllerTest {
 
     private static final UUID JOB_ID = UUID.randomUUID();
     private static final Instant EARLIER = Instant.parse("2026-09-01T10:00:00Z");
+    /** 18:00 UTC = 01:00 ngay hom sau o Viet Nam - deadline phai tinh theo ngay VN. */
+    private static final Instant NOW = Instant.parse("2026-09-14T18:00:00Z");
+    private static final LocalDate TODAY_VN = LocalDate.of(2026, 9, 15);
     private static final String HUMAN_UA =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140.0 Safari/537.36";
     private static final String FACEBOOK_UA = "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)";
@@ -62,7 +68,8 @@ class PublicJobShareControllerTest {
         ShareLinkFactory linkFactory = new ShareLinkFactory(
                 "http://localhost:8080", "http://localhost:5173", "http://localhost:5173/og-default.png");
         controller = new PublicJobShareController(
-                jobPositionRepository, publishingChannelRepository, jobShareService, linkFactory);
+                jobPositionRepository, publishingChannelRepository, jobShareService, linkFactory,
+                Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     private JobPosition job(String title, String description) {
@@ -78,7 +85,7 @@ class PublicJobShareControllerTest {
     }
 
     private void givenPublishedJob(String title, String description) {
-        when(jobPositionRepository.findByIdAndStatus(JOB_ID, JobStatus.PUBLISHED))
+        when(jobPositionRepository.findOpenForApplications(JOB_ID, TODAY_VN))
                 .thenReturn(Optional.of(job(title, description)));
     }
 
@@ -207,10 +214,10 @@ class PublicJobShareControllerTest {
         assertThat(html).contains("<meta property=\"og:description\" content=\"Dong mot Dong hai Dong ba\">");
     }
 
-    /** UC-44: pausing or closing a Job has to kill its already-shared links too. */
+    /** UC-44: pausing, closing or passing the deadline of a Job has to kill its already-shared links too. */
     @Test
-    void aJobThatIsNoLongerPublishedReturns404Html() {
-        when(jobPositionRepository.findByIdAndStatus(JOB_ID, JobStatus.PUBLISHED)).thenReturn(Optional.empty());
+    void aJobThatIsNoLongerOpenReturns404Html() {
+        when(jobPositionRepository.findOpenForApplications(JOB_ID, TODAY_VN)).thenReturn(Optional.empty());
 
         ResponseEntity<String> response = controller.shareLanding(JOB_ID, "LINKEDIN", HUMAN_UA);
 

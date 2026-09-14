@@ -1,7 +1,6 @@
 package com.hirewise.be.service;
 
 import com.hirewise.be.domain.EmploymentType;
-import com.hirewise.be.domain.JobStatus;
 import com.hirewise.be.dto.PagedResponseDto;
 import com.hirewise.be.dto.response.DepartmentResponseDto;
 import com.hirewise.be.dto.response.JobBoardDetailResponseDto;
@@ -21,6 +20,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
+import java.time.Clock;
 import java.util.List;
 import java.util.UUID;
 
@@ -36,6 +36,7 @@ public class PublicJobBoardService {
 
     JobPositionRepository jobPositionRepository;
     DepartmentRepository departmentRepository;
+    Clock clock;
 
     /**
      * UC-16 step 2-3: the Job Board card list, optionally filtered.
@@ -49,7 +50,8 @@ public class PublicJobBoardService {
     public PagedResponseDto<JobBoardSummaryResponseDto> list(Long departmentId, EmploymentType employmentType,
                                                               String keyword, Pageable pageable) {
         String normalizedKeyword = (keyword == null || keyword.isBlank()) ? "" : keyword.trim();
-        Page<JobPosition> page = jobPositionRepository.searchPublished(departmentId, employmentType, normalizedKeyword, pageable);
+        Page<JobPosition> page = jobPositionRepository.searchPublished(
+                departmentId, employmentType, normalizedKeyword, JobPosition.deadlineToday(clock), pageable);
         List<JobBoardSummaryResponseDto> content = page.getContent().stream()
                 .map(JobBoardMapper::toSummaryDto)
                 .toList();
@@ -61,12 +63,13 @@ public class PublicJobBoardService {
      *
      * @param jobId job position id
      * @return the job's public detail view
-     * @throws ResourceNotFoundException if no such job exists, or it exists but isn't Published
-     *                                    (BR-APR-03 - treated identically to "not found" for an
-     *                                    anonymous candidate, see {@code JobPositionRepository#findByIdAndStatus})
+     * @throws ResourceNotFoundException if no such job exists, it isn't Published, or its application
+     *                                    deadline has passed (BR-APR-03 - treated identically to "not
+     *                                    found" for an anonymous candidate, see
+     *                                    {@code JobPositionRepository#findOpenForApplications})
      */
     public JobBoardDetailResponseDto getPublishedDetail(UUID jobId) {
-        JobPosition job = jobPositionRepository.findByIdAndStatus(jobId, JobStatus.PUBLISHED)
+        JobPosition job = jobPositionRepository.findOpenForApplications(jobId, JobPosition.deadlineToday(clock))
                 .orElseThrow(() -> new ResourceNotFoundException(ErrorCode.JOB_POSITION_NOT_FOUND, jobId));
         return JobBoardMapper.toDetailDto(job);
     }
@@ -78,7 +81,8 @@ public class PublicJobBoardService {
      * @return the filter options
      */
     public JobBoardFilterOptionsResponseDto filterOptions() {
-        List<Long> departmentIds = jobPositionRepository.findDistinctDepartmentIdsWithPublishedJobs();
+        List<Long> departmentIds = jobPositionRepository.findDistinctDepartmentIdsWithPublishedJobs(
+                JobPosition.deadlineToday(clock));
         List<DepartmentResponseDto> departments = departmentRepository.findAllById(departmentIds).stream()
                 .map(DepartmentMapper::toResponseDto)
                 .sorted((a, b) -> a.getName().compareToIgnoreCase(b.getName()))

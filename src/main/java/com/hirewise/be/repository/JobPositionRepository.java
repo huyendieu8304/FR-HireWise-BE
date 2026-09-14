@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.LocalDate;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -22,17 +23,20 @@ public interface JobPositionRepository extends JpaRepository<JobPosition, UUID> 
      * only (BR-APR-03), with optional department/employment type/keyword
      * filters (UC-16 normal flow step 3). Every filter is a no-op when its
      * argument is {@code null}/blank, so the same query backs both the
-     * unfiltered list and any combination of filters.
+     * unfiltered list and any combination of filters. Jobs whose application
+     * deadline has passed are excluded - see {@link #findOpenForApplications}.
      *
      * @param departmentId   optional department filter
      * @param employmentType optional employment type filter
      * @param keyword        optional case-insensitive substring match on the job title
+     * @param today          current business date (Asia/Ho_Chi_Minh)
      * @param pageable       pagination/sort parameters
-     * @return a page of matching Published job positions
+     * @return a page of matching Published job positions still accepting applications
      */
     @Query("""
             SELECT j FROM JobPosition j
             WHERE j.status = com.hirewise.be.domain.JobStatus.PUBLISHED
+              AND (j.applicationDeadline IS NULL OR j.applicationDeadline >= :today)
               AND (:departmentId IS NULL OR j.department.id = :departmentId)
               AND (:employmentType IS NULL OR j.employmentType = :employmentType)
               AND (:keyword = '' OR LOWER(j.title) LIKE LOWER(CONCAT('%', :keyword, '%')))
@@ -40,6 +44,7 @@ public interface JobPositionRepository extends JpaRepository<JobPosition, UUID> 
     Page<JobPosition> searchPublished(@Param("departmentId") Long departmentId,
                                        @Param("employmentType") EmploymentType employmentType,
                                        @Param("keyword") String keyword,
+                                       @Param("today") LocalDate today,
                                        Pageable pageable);
 
     /**
@@ -55,18 +60,40 @@ public interface JobPositionRepository extends JpaRepository<JobPosition, UUID> 
     Optional<JobPosition> findByIdAndStatus(UUID id, JobStatus status);
 
     /**
+     * UC-16 step 4 / UC-17 / UC-32 share link: a single job, but only if it is
+     * {@code PUBLISHED} <b>and</b> its application deadline (if any) has not
+     * passed yet. The deadline day itself still accepts applications. A job
+     * past its deadline is treated exactly like a non-Published one on every
+     * public entry point - hidden from the board, its JD unreachable by direct
+     * link, and applying 404s.
+     *
+     * @param id    job position id
+     * @param today current business date (Asia/Ho_Chi_Minh)
+     * @return the job, if it is Published and still accepting applications
+     */
+    @Query("""
+            SELECT j FROM JobPosition j
+            WHERE j.id = :id
+              AND j.status = com.hirewise.be.domain.JobStatus.PUBLISHED
+              AND (j.applicationDeadline IS NULL OR j.applicationDeadline >= :today)
+            """)
+    Optional<JobPosition> findOpenForApplications(@Param("id") UUID id, @Param("today") LocalDate today);
+
+    /**
      * Powers the public Job Board's department filter dropdown (UC-16 REF
      * 2) - only departments that currently have at least one Published job
-     * are worth offering, so the list stays short and every option
-     * actually returns results.
+     * still accepting applications are worth offering, so the list stays
+     * short and every option actually returns results.
      *
-     * @return ids of departments with at least one Published job
+     * @param today current business date (Asia/Ho_Chi_Minh)
+     * @return ids of departments with at least one open Published job
      */
     @Query("""
             SELECT DISTINCT j.department.id FROM JobPosition j
             WHERE j.status = com.hirewise.be.domain.JobStatus.PUBLISHED AND j.department IS NOT NULL
+              AND (j.applicationDeadline IS NULL OR j.applicationDeadline >= :today)
             """)
-    java.util.List<Long> findDistinctDepartmentIdsWithPublishedJobs();
+    java.util.List<Long> findDistinctDepartmentIdsWithPublishedJobs(@Param("today") LocalDate today);
 
     /**
      * UC-14: returns job positions whose owning department is within the calling
