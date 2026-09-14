@@ -1,7 +1,6 @@
 package com.hirewise.be.controller;
 
 import com.hirewise.be.domain.JobPosition;
-import com.hirewise.be.domain.JobStatus;
 import com.hirewise.be.domain.PublishingChannel;
 import com.hirewise.be.domain.PublishingChannelCode;
 import com.hirewise.be.repository.JobPositionRepository;
@@ -23,6 +22,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.util.HtmlUtils;
 
+import java.time.Clock;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.regex.Pattern;
@@ -71,6 +71,7 @@ public class PublicJobShareController {
     PublishingChannelRepository publishingChannelRepository;
     JobShareService jobShareService;
     ShareLinkFactory shareLinkFactory;
+    Clock clock;
 
     /**
      * Serves the Open Graph card for a shared Job and forwards real visitors
@@ -94,9 +95,9 @@ public class PublicJobShareController {
             @RequestParam(name = "ch", required = false) String channelCode,
             @RequestHeader(value = HttpHeaders.USER_AGENT, required = false) String userAgent) {
 
-        // Same gate as the public Job Board (UC-16): a Paused or Closed job must
-        // disappear from a shared link too, not just from the board itself.
-        Optional<JobPosition> found = jobPositionRepository.findByIdAndStatus(jobId, JobStatus.PUBLISHED);
+        // Same gate as the public Job Board (UC-16): a Paused, Closed or past-deadline
+        // job must disappear from a shared link too, not just from the board itself.
+        Optional<JobPosition> found = jobPositionRepository.findOpenForApplications(jobId, JobPosition.deadlineToday(clock));
         if (found.isEmpty()) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
                     .contentType(MediaType.TEXT_HTML)

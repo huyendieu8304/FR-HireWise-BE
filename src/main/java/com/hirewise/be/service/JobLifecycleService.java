@@ -68,7 +68,7 @@ public class JobLifecycleService {
      * <p>This is the only code path in the system that produces
      * {@code PUBLISHED}. Everything downstream keys off it without any further
      * change: {@code JobPositionRepository.searchPublished} and
-     * {@code findByIdAndStatus(id, PUBLISHED)} already gate both the public
+     * {@code findOpenForApplications(id, today)} already gate both the public
      * board (UC-16) and application intake (UC-17).</p>
      *
      * @param jobId       id of the Approved job to publish

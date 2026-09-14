@@ -37,6 +37,8 @@ public final class PermissionCodes {
     public static final String APPLICATION_REJECT = "APPLICATION_REJECT";
 
     public static final String AI_VIEW = "AI_VIEW";
+    /** Write: enqueue AI Screening Runs ("Phân tích lại" / "Quét cả cột") - split from AI_VIEW in V49. */
+    public static final String AI_RUN = "AI_RUN";
 
     public static final String INTERVIEW_SCHEDULE = "INTERVIEW_SCHEDULE";
     public static final String INTERVIEW_BOOK = "INTERVIEW_BOOK";

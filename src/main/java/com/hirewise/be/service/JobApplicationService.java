@@ -8,7 +8,6 @@ import com.hirewise.be.domain.ApplicationStatus;
 import com.hirewise.be.domain.Candidate;
 import com.hirewise.be.domain.CandidateStatus;
 import com.hirewise.be.domain.JobPosition;
-import com.hirewise.be.domain.JobStatus;
 import com.hirewise.be.domain.PipelineStage;
 import com.hirewise.be.domain.StageTransitionType;
 import com.hirewise.be.domain.StoredFile;
@@ -93,12 +92,13 @@ public class JobApplicationService {
      * @param request contact info (full name / email / phone)
      * @param cvFile  the uploaded CV
      * @return the created (or updated, for AF-01) application's id
-     * @throws ResourceNotFoundException if the job doesn't exist or isn't Published
+     * @throws ResourceNotFoundException if the job doesn't exist, isn't Published, or its application deadline has passed
      * @throws BadRequestException       if the CV file is missing, the wrong format, or too large (EX-01)
      */
     @Transactional
     public SubmitApplicationResponseDto apply(UUID jobId, SubmitApplicationRequestDto request, MultipartFile cvFile) {
-        JobPosition job = jobPositionRepository.findByIdAndStatus(jobId, JobStatus.PUBLISHED)
+        // Hết hạn nộp hồ sơ được xử lý y như Job không còn Published (404), cùng gate với Job Board.
+        JobPosition job = jobPositionRepository.findOpenForApplications(jobId, JobPosition.deadlineToday(clock))
                 .orElseThrow(() -> new ResourceNotFoundException(ErrorCode.JOB_POSITION_NOT_FOUND, jobId));
 
         validateCv(cvFile);
