@@ -170,21 +170,8 @@ public class InterviewService {
 
         Instant now = Instant.now(clock);
 
-        // Auto-cancel previous SCHEDULED interview(s) for this application before scheduling a new one
-        List<Interview> existingScheduledInterviews = interviewRepository.findAllByApplication_IdAndStatus(
-                applicationId, InterviewStatus.SCHEDULED);
-        for (Interview oldInterview : existingScheduledInterviews) {
-            oldInterview.setStatus(InterviewStatus.CANCELLED);
-            oldInterview.setUpdatedAt(now);
-            interviewRepository.save(oldInterview);
-        }
-        if (!existingScheduledInterviews.isEmpty()) {
-            interviewRepository.flush();
-            log.info("Cancelled {} previous scheduled interview(s) for application {}",
-                    existingScheduledInterviews.size(), applicationId);
-        }
-
         // Validate and fetch interviewers, checking for schedule conflict
+        // NOTE: All validations MUST pass before any mutation (cancel/save).
         List<User> interviewers = new ArrayList<>();
         for (Long interviewerId : request.getInterviewerIds()) {
             User interviewer = userRepository.findById(interviewerId)
@@ -199,6 +186,21 @@ public class InterviewService {
                 throw new BusinessConflictException(ErrorCode.INTERVIEWER_TIME_CONFLICT, interviewer.getFullName());
             }
             interviewers.add(interviewer);
+        }
+
+        // Auto-cancel previous SCHEDULED interview(s) for this application.
+        // Done AFTER all validations pass so we never cancel and then throw,
+        // which would leave the application with no scheduled interview.
+        List<Interview> existingScheduledInterviews = interviewRepository.findAllByApplication_IdAndStatus(
+                applicationId, InterviewStatus.SCHEDULED);
+        for (Interview oldInterview : existingScheduledInterviews) {
+            oldInterview.setStatus(InterviewStatus.CANCELLED);
+            oldInterview.setUpdatedAt(now);
+            interviewRepository.save(oldInterview);
+        }
+        if (!existingScheduledInterviews.isEmpty()) {
+            log.info("Cancelled {} previous scheduled interview(s) for application {}",
+                    existingScheduledInterviews.size(), applicationId);
         }
 
         // 1. Move stage (audit trail)
@@ -374,10 +376,8 @@ public class InterviewService {
                 // ── Hiring Manager: filter by RBAC-layer-3 department scopes ──────────────
                 // Resolve all department IDs the HM is allowed to see (including sub-departments).
                 Set<Long> allowedDeptIds = resolveHiringManagerDepartmentIds(currentUserId);
-                if (allowedDeptIds == null) {
-                    // SYSTEM scope → HM can see everything (equivalent to HR_ADMIN for calendar)
-                    // no-op: do not filter
-                } else {
+                if (allowedDeptIds != null) {
+                    // allowedDeptIds == null → SYSTEM scope → sees everything, no filter needed
                     interviews = interviews.stream().filter(i -> {
                         if (i.getApplication() == null || i.getApplication().getJobPosition() == null) return false;
                         var dept = i.getApplication().getJobPosition().getDepartment();
@@ -385,34 +385,51 @@ public class InterviewService {
                     }).toList();
                 }
 
-            } else if (currentUser.hasRole("RECRUITER")) {
-                // ── Recruiter: filter by job ownership ────────────────────────────────────
-                interviews = interviews.stream().filter(i -> {
-                    if (i.getApplication() == null || i.getApplication().getJobPosition() == null) return false;
-                    var job = i.getApplication().getJobPosition();
-                    boolean isJobRecruiter = job.getRecruiter() != null
-                            && currentUserId.equals(job.getRecruiter().getId());
-                    boolean isJobCreator = currentUserId.equals(job.getCreatedByUserId());
-                    boolean isScheduledBy = i.getScheduledBy() != null
-                            && currentUserId.equals(i.getScheduledBy().getId());
-                    return isJobRecruiter || isJobCreator || isScheduledBy;
-                }).toList();
-
             } else {
-                // ── Interviewer (and any other role): only assigned interviews ─────────────
-                interviews = interviews.stream().filter(i ->
-                    i.getParticipants() != null && i.getParticipants().stream()
-                            .anyMatch(p -> p.getInterviewer() != null
-                                    && currentUserId.equals(p.getInterviewer().getId()))
-                ).toList();
+                // ── Non-HM: collect allowed interview IDs from ALL roles the user has ──────
+                // A user may hold multiple roles (e.g., RECRUITER + INTERVIEWER).
+                // We take the UNION so they see everything each of their roles entitles them to.
+                Set<java.util.UUID> allowedInterviewIds = new java.util.HashSet<>();
+
+                if (currentUser.hasRole("RECRUITER")) {
+                    // Recruiter: interviews for jobs they own or scheduled themselves
+                    for (Interview i : interviews) {
+                        if (i.getApplication() == null || i.getApplication().getJobPosition() == null) continue;
+                        var job = i.getApplication().getJobPosition();
+                        boolean isJobRecruiter = job.getRecruiter() != null
+                                && currentUserId.equals(job.getRecruiter().getId());
+                        boolean isJobCreator = currentUserId.equals(job.getCreatedByUserId());
+                        boolean isScheduledBy = i.getScheduledBy() != null
+                                && currentUserId.equals(i.getScheduledBy().getId());
+                        if (isJobRecruiter || isJobCreator || isScheduledBy) {
+                            allowedInterviewIds.add(i.getId());
+                        }
+                    }
+                }
+
+                if (currentUser.hasRole("INTERVIEWER") || !currentUser.hasRole("RECRUITER")) {
+                    // Interviewer (or any role not matched above): interviews they are assigned to
+                    for (Interview i : interviews) {
+                        if (i.getParticipants() != null && i.getParticipants().stream()
+                                .anyMatch(p -> p.getInterviewer() != null
+                                        && currentUserId.equals(p.getInterviewer().getId()))) {
+                            allowedInterviewIds.add(i.getId());
+                        }
+                    }
+                }
+
+                interviews = interviews.stream()
+                        .filter(i -> allowedInterviewIds.contains(i.getId()))
+                        .toList();
             }
         }
+
 
         return interviews.stream().map(i -> {
             List<String> participantNames = i.getParticipants() != null
                     ? i.getParticipants().stream()
-                        .map(p -> p.getInterviewer().getFullName())
-                        .toList()
+                    .map(p -> p.getInterviewer().getFullName())
+                    .toList()
                     : List.of();
             return com.hirewise.be.dto.response.InterviewCalendarDto.builder()
                     .interviewId(i.getId())
@@ -908,4 +925,3 @@ public class InterviewService {
                 .toList();
     }
 }
-
